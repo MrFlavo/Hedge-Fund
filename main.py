@@ -678,7 +678,7 @@ def calculate_smart_logic(df, symbol: str, cap: float, current_price=None):
 # ==================
 # --- ARAYÜZ ---
 # ==================
-tab_single, tab_hunter = st.tabs(["🛡️ TEKLİ ANALİZ", "🦅 BIST 30 AKILLI AVCI"])
+tab_single, tab_hunter = st.tabs(["🛡️ TEKLİ ANALİZ", "🦅 AKILLI AVCI"])
 
 # --- SEKME 1: TEKLİ ANALİZ ---
 with tab_single:
