@@ -33,13 +33,39 @@ st.set_page_config(layout="wide", page_title="PROP DESK V6.9 (INTRADAY FULLSCAN 
 try:
     import yfinance as yf
     import pandas as pd
-    import pandas_ta as ta
     import plotly.graph_objects as go
     import numpy as np
 except ImportError:
     st.error("⚠️ Kütüphane Eksik!")
-    st.info('Lütfen terminali açıp şu komutu yapıştırın: pip install "numpy<2.0.0" --force-reinstall')
+        st.info("Gereken paketleri requirements.txt üzerinden kurun (aşağıdaki öneriyi uygulayın).")
     st.stop()
+
+# =====================
+# TA HESAPLAMALARI (pandas-ta YOK)
+# =====================
+def _ema(s, length: int):
+    return s.ewm(span=length, adjust=False).mean()
+
+def _sma(s, length: int):
+    return s.rolling(length).mean()
+
+def _roc(s, length: int):
+    return (s / s.shift(length) - 1.0) * 100.0
+
+def _rsi(close, length: int = 14):
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = (-delta).clip(lower=0)
+    avg_gain = gain.ewm(alpha=1/length, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/length, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    return rsi.fillna(0)
+
+def _atr(high, low, close, length: int = 14):
+    prev_close = close.shift(1)
+    tr = pd.concat([(high - low), (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+    return tr.ewm(alpha=1/length, adjust=False).mean()
 
 # --- CSS TASARIM (DARK PRO THEME) ---
 st.markdown("""
@@ -213,23 +239,23 @@ def get_data(symbol: str, period: str, interval: str):
     df.columns = [c.title() for c in df.columns]
 
     # Core indicators
-    df["EMA50"] = ta.ema(df["Close"], length=50)
-    df["EMA200"] = ta.ema(df["Close"], length=200)
-    df["ATR"] = ta.atr(df["High"], df["Low"], df["Close"], length=14)
-    df["RSI"] = ta.rsi(df["Close"], length=14)
+    df["EMA50"] = _ema(df["Close"], 50)
+    df["EMA200"] = _ema(df["Close"], 200)
+    df["ATR"] = _atr(df["High"], df["Low"], df["Close"], 14)
+    df["RSI"] = _rsi(df["Close"], 14)
 
     # Constance Brown CMB Composite Index:
     # CI = ROC_9(RSI_14) + SMA_3(RSI_3)
-    df["RSI3"] = ta.rsi(df["Close"], length=3)
-    df["RSI14_ROC9"] = ta.roc(df["RSI"], length=9)
-    df["RSI3_SMA3"] = ta.sma(df["RSI3"], length=3)
+    df["RSI3"] = _rsi(df["Close"], 3)
+    df["RSI14_ROC9"] = _roc(df["RSI"], 9)
+    df["RSI3_SMA3"] = _sma(df["RSI3"], 3)
     df["CMB_CI"] = df["RSI14_ROC9"] + df["RSI3_SMA3"]
-    df["CMB_FAST"] = ta.sma(df["CMB_CI"], length=13)
-    df["CMB_SLOW"] = ta.sma(df["CMB_CI"], length=33)
+    df["CMB_FAST"] = _sma(df["CMB_CI"], 13)
+    df["CMB_SLOW"] = _sma(df["CMB_CI"], 33)
 
     # Volume helpers
     if "Volume" in df.columns:
-        df["VOL_MA20"] = ta.sma(df["Volume"], length=VOL_LOOKBACK)
+        df["VOL_MA20"] = _sma(df["Volume"], VOL_LOOKBACK)
 
     # Rolling swing levels
     df["SWING_HIGH"] = df["High"].rolling(SWING_LOOKBACK).max()
@@ -651,7 +677,7 @@ def calculate_smart_logic(df, symbol: str, cap: float, current_price=None):
 # ==================
 # --- ARAYÜZ ---
 # ==================
-tab_single, tab_hunter = st.tabs(["🛡️ TEKLİ ANALİZ", "🦅 AKILLI AVCI"])
+tab_single, tab_hunter = st.tabs(["🛡️ TEKLİ ANALİZ", "🦅 BIST 30 AKILLI AVCI"])
 
 # --- SEKME 1: TEKLİ ANALİZ ---
 with tab_single:
