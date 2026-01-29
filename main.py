@@ -1,8 +1,33 @@
+
+# =====================
+# BIST EVREN SEÇİMİ
+# =====================
+BIST30 = [
+    "AKBNK.IS","ARCLK.IS","ASELS.IS","BIMAS.IS","EKGYO.IS","EREGL.IS",
+    "FROTO.IS","GARAN.IS","GUBRF.IS","ISCTR.IS","KCHOL.IS","KOZAL.IS",
+    "KRDMD.IS","PETKM.IS","PGSUS.IS","SAHOL.IS","SASA.IS","SISE.IS",
+    "TAVHL.IS","TCELL.IS","THYAO.IS","TOASO.IS","TTKOM.IS","TUPRS.IS",
+    "YKBNK.IS"
+]
+
+# Basit yaklaşım: BIST50 ve BIST100 = BIST30 + ek hisseler (manuel genişletilebilir)
+BIST50 = list(set(BIST30 + [
+    "ALARK.IS","ENKAI.IS","HEKTS.IS","ODAS.IS","OYAKC.IS","SMRTG.IS",
+    "VESTL.IS","ZOREN.IS","KONTR.IS","CANTE.IS","ASTOR.IS","GWIND.IS"
+]))
+
+BIST100 = list(set(BIST50 + [
+    "AKSA.IS","AKSEN.IS","BRSAN.IS","DOAS.IS","ENJSA.IS","GESAN.IS",
+    "KONYA.IS","LOGO.IS","NTHOL.IS","OTKAR.IS","TKFEN.IS","ULKER.IS",
+    "YATAS.IS","ALFAS.IS","CWENE.IS","EUPWR.IS","MIATK.IS","QUAGR.IS"
+]))
+
+
 import streamlit as st
 import time
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(layout="wide", page_title="PROP DESK V6.5 (AUTO SMART RSI)", page_icon="🦅")
+st.set_page_config(layout="wide", page_title="PROP DESK V6.9 (INTRADAY FULLSCAN REALTIME)", page_icon="🦅")
 
 # --- KÜTÜPHANE KONTROLÜ VE HATA YÖNETİMİ ---
 try:
@@ -50,6 +75,16 @@ st.markdown("""
 # AUTO AYARLAR (KULLANICI AYARI YOK) - isterse koddan değişir
 # =========================================================
 DEFAULT_RISK_PCT = 1.0     # işlem başı risk (otomatik)
+# --- GÜN İÇİ SEVİYELER (TP/SL) ---
+TP_MIN_PCT = 1.0           # hedef minimum (%)
+TP_MAX_PCT = 3.0           # hedef maksimum (%)
+TP_BASE_PCT = 2.0          # backtest için varsayılan hedef (%)
+SL_ATR_MULT = 1.2          # stop mesafesi için ATR katsayı (auto_stop_mult ile birlikte)
+SL_MIN_PCT = 0.6           # stop minimum (%)
+SL_MAX_PCT = 2.5           # stop maksimum (%)
+
+def clamp(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
 COMMISSION_BPS = 10        # 0.10% tek yön (giriş+çıkış ayrı uygulanır)
 SLIPPAGE_BPS = 5           # 0.05% tek yön
 RR_TARGET = 2.0            # TP = stop_dist * RR_TARGET
@@ -57,30 +92,116 @@ BACKTEST_BARS = 420        # arka planda backtest kaç bar üzerinde çalışsı
 SWING_LOOKBACK = 60        # swing high/low hedef/direnç için
 VOL_LOOKBACK = 20          # hacim ortalaması
 
-# --- YAN MENÜ (MINIMAL): sadece sermaye ---
-st.sidebar.header("💼 SERMAYE")
-capital = st.sidebar.number_input("Sermaye (TL)", value=100000, step=5000)
-st.sidebar.caption(
-    f"Risk otomatik: %{DEFAULT_RISK_PCT:.1f} | "
-    f"Maliyet varsayımı: {COMMISSION_BPS} bps komisyon + {SLIPPAGE_BPS} bps slipaj (tek yön)"
-)
+# --- KONFİGÜRASYON (DEFAULT, GİZLİ) ---
+# Kullanıcıya sidebar ayarları gösterilmez; tüm parametreler burada default çalışır.
+capital = 100000  # TL
 
-# BIST 30 LİSTESİ (TARAMA İÇİN)
+# Tarayıcı defaults
+universe = "TÜMÜ (30+50+100)"
+interval = "15m"
+period = "60d"
+min_score = 65
+min_rr = 1.5
+top_n = 15
+
+# TP / SL defaults (gün içi)
+tp_min = 1.0
+tp_max = 3.0
+tp_base = 2.0  # skor-dinamik hesap sonrası clamp uygulanır
+sl_atr_mult = 1.2
+sl_min = 0.6
+sl_max = 2.5
+max_hold_bars = 30
+
+
+# BIST EVRENİ (TARAMA İÇİN)
 BIST30_TICKERS = [
     "AKBNK", "ALARK", "ARCLK", "ASELS", "ASTOR", "BIMAS", "BRSAN", "DOAS", "EKGYO", "ENKAI",
     "EREGL", "FROTO", "GARAN", "GUBRF", "HEKTS", "ISCTR", "KCHOL", "KONTR", "KOZAL", "KRDMD",
     "ODAS", "OYAKC", "PETKM", "PGSUS", "SAHOL", "SASA", "SISE", "TCELL", "THYAO", "TOASO",
     "TSKB", "TTKOM", "TUPRS", "YKBNK"
 ]
+# --- ENDEKS LİSTELERİ (BIST30/50/100) ---
+INDEX_URL = {
+    "BIST30": "https://uzmanpara.milliyet.com.tr/canli-borsa/bist-30-hisseleri/",
+    "BIST50": "https://uzmanpara.milliyet.com.tr/canli-borsa/bist-50-hisseleri/",
+    "BIST100": "https://uzmanpara.milliyet.com.tr/canli-borsa/bist-100-hisseleri/",
+}
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_index_tickers(index_name: str) -> list[str]:
+    """BIST endeks bileşenlerini web'den çeker (1 saat cache).
+    Hata olursa güvenli şekilde fallback döner.
+    """
+    url = INDEX_URL.get(index_name)
+    if not url:
+        return []
+    try:
+        tables = pd.read_html(url)
+        for t in tables:
+            cols = [str(c).lower() for c in t.columns]
+            if any("menkul" in c for c in cols) or any("sembol" in c for c in cols):
+                sym_col = t.columns[0]
+                syms = t[sym_col].astype(str).str.upper().str.strip().tolist()
+                syms = [s.split()[0] for s in syms]  # olası ek metinleri kırp
+                syms = [s + ".IS" if not s.endswith(".IS") else s for s in syms]
+                syms = [s for s in syms if s and s[0].isalpha()]
+                # unique preserve order
+                seen=set()
+                out=[]
+                for s in syms:
+                    if s not in seen:
+                        out.append(s); seen.add(s)
+                return out
+    except Exception:
+        return []
+
+def build_universe(universe_choice: str) -> list[str]:
+    """
+    Evreni oluştur:
+    - Önce web'den güncel endeks bileşenlerini çekmeyi dener.
+    - Başarısız olursa dosya içindeki fallback listelerini kullanır (BIST30/BIST50/BIST100).
+    """
+    # 1) Web'den dene
+    if universe_choice in ("BIST30", "BIST50", "BIST100"):
+        tickers = fetch_index_tickers(universe_choice)
+        if tickers:
+            return tickers
+
+    # 2) Fallback listeleri (dosya içi)
+    fallback_map = {
+        "BIST30": BIST30,
+        "BIST50": BIST50,
+        "BIST100": BIST100,
+    }
+    if universe_choice in fallback_map:
+        return sorted(list(dict.fromkeys(fallback_map[universe_choice])))
+
+    # 3) Tümü: web varsa web, yoksa fallback birleşim
+    if universe_choice.startswith("TÜMÜ"):
+        a = fetch_index_tickers("BIST30") or BIST30
+        b = fetch_index_tickers("BIST50") or BIST50
+        c = fetch_index_tickers("BIST100") or BIST100
+        combined = []
+        for lst in (a, b, c):
+            for s in lst:
+                if s not in combined:
+                    combined.append(s)
+        return combined
+
+    # default
+    return sorted(list(dict.fromkeys(BIST100)))
+
+
 
 # --- MODÜL 1: VERİ ÇEKME + İNDİKATÖR (CACHE) ---
 @st.cache_data(ttl=900, show_spinner=False)
-def get_data(symbol: str):
+def get_data(symbol: str, period: str, interval: str):
     symbol = symbol.upper().strip()
     if len(symbol) <= 5 and not symbol.endswith(".IS"):
         symbol += ".IS"
 
-    df = yf.download(symbol, period="6mo", interval="60m", progress=False)
+    df = yf.download(symbol, period=period, interval=interval, progress=False)
     if df is None or df.empty:
         return None, symbol
 
@@ -130,6 +251,33 @@ def auto_stop_mult(atr: float, price: float) -> float:
     if atr_pct < 0.03:
         return 2.0
     return 2.5
+
+@st.cache_data(ttl=30, show_spinner=False)
+def get_realtime_price(symbol: str):
+    """YFinance üzerinden olabildiğince 'anlık' (last) fiyatı al.
+    - Önce fast_info (hızlı)
+    - Olmazsa 1 dakikalık son veriden kapanışı al
+    """
+    try:
+        sym = symbol.upper().strip()
+        if len(sym) <= 5 and not sym.endswith(".IS"):
+            sym += ".IS"
+
+        t = yf.Ticker(sym)
+        fi = getattr(t, "fast_info", None)
+        if fi:
+            for k in ("last_price", "lastPrice", "regularMarketPrice"):
+                if k in fi and fi[k]:
+                    return float(fi[k])
+
+        # Fallback: son 1m bar kapanışı
+        df = yf.download(sym, period="1d", interval="1m", progress=False)
+        if df is not None and not df.empty:
+            return float(df["Close"].iloc[-1])
+    except Exception:
+        pass
+    return None
+
 
 def sentiment_proxy(df) -> float:
     """
@@ -224,7 +372,14 @@ def run_backtest(df, start_capital: float):
             entry_raw = float(row["Open"])
             entry = entry_raw * (1 + slippage)
 
-            stop_dist = float(pending["stop_dist"])
+            # STOP/TP seviyeleri: entry (OPEN) üzerinden yüzde clamp'li
+            atr_sig = float(pending.get("atr", row.get("ATR", 0.0)))
+            stop_mult_sig = float(pending.get("stop_mult", auto_stop_mult(float(row["ATR"]), float(row["Close"]))))
+            raw_stop_dist = atr_sig * stop_mult_sig * float(sl_atr_mult)
+            sl_pct = clamp(raw_stop_dist / entry if entry > 0 else 0.0, float(sl_min)/100.0, float(sl_max)/100.0)
+            stop_dist = entry * sl_pct
+            tp_pct = clamp(float(tp_base)/100.0, float(tp_min)/100.0, float(tp_max)/100.0)
+
             if stop_dist > 0 and entry > 0:
                 risk_amt = cash * (DEFAULT_RISK_PCT / 100.0)
                 qty_risk = int(risk_amt / stop_dist)
@@ -241,7 +396,7 @@ def run_backtest(df, start_capital: float):
                         "entry": entry,
                         "qty": qty,
                         "stop": entry - stop_dist,
-                        "tp": entry + stop_dist * RR_TARGET,
+                        "tp": entry * (1 + tp_pct),
                         "entry_fee": fee,
                         "stop_dist": stop_dist
                     }
@@ -286,7 +441,7 @@ def run_backtest(df, start_capital: float):
                 stop_mult = auto_stop_mult(float(row["ATR"]), float(row["Close"]))
                 stop_dist = float(row["ATR"]) * stop_mult
                 if stop_dist > 0:
-                    pending = {"idx": i + 1, "stop_dist": stop_dist}
+                    pending = {"idx": i + 1, "atr": float(row["ATR"]), "stop_mult": stop_mult}
 
         # 4) Equity mark-to-market
         eq = cash + position_value(row)
@@ -343,7 +498,7 @@ def run_backtest(df, start_capital: float):
 
 
 # --- MODÜL 5: SMART LOGIC (PUAN + PLAN) ---
-def calculate_smart_logic(df, symbol: str, cap: float):
+def calculate_smart_logic(df, symbol: str, cap: float, current_price=None):
     last = df.iloc[-1]
     prev = df.iloc[-2]
 
@@ -422,27 +577,25 @@ def calculate_smart_logic(df, symbol: str, cap: float):
         score -= 6
         reasons.append("🔴 Momentum/Volüm negatif (sentiment proxy)")
 
-    # --- Risk & Hedef ---
-    price = float(last["Close"])
+    # --- Risk & Hedef (GÜN İÇİ: TP %1-%3 + ATR tabanlı STOP) ---
+    price = float(current_price) if current_price is not None else float(last["Close"])  # taramada anlık/son fiyat, backtestte next open
     atr = float(last["ATR"])
-    stop_mult = auto_stop_mult(atr, price)
-    stop_dist = atr * stop_mult
+
+    # STOP: ATR tabanlı + yüzde clamp
+    stop_mult = auto_stop_mult(atr, price) * float(sl_atr_mult)
+    raw_stop_dist = atr * stop_mult
+    sl_pct = clamp(raw_stop_dist / price if price > 0 else 0.0, float(sl_min) / 100.0, float(sl_max) / 100.0)
+    stop_dist = price * sl_pct
     stop_price = price - stop_dist
 
-    recent_high = float(last["SWING_HIGH"])
-    recent_low = float(last["SWING_LOW"])
-    fib_ext = recent_high + ((recent_high - recent_low) * 0.618)  # 1.618 extension
+    # TP: skor tabanlı dinamik, ama %1-%3 aralığına kilitli
+    tp_pct = 0.01 + (score - 50) * (0.02 / 30.0)  # 50->%1, 80->%3 yaklaşımı
+    tp_pct = clamp(tp_pct, float(tp_min) / 100.0, float(tp_max) / 100.0)
+    target_price = price * (1 + tp_pct)
+    target_type = f"TP %{tp_pct*100:.1f} (min %{tp_min:.1f} / max %{tp_max:.1f})"
 
-    if breakout:
-        target_price = fib_ext
-        target_type = "Fibonacci Uzatma (1.618)"
-    else:
-        target_price = recent_high
-        target_type = "Swing High Direnç"
+    rr_ratio = (target_price - price) / stop_dist if stop_dist > 0 else 0.0
 
-    if target_price <= price:
-        target_price = price + stop_dist * RR_TARGET
-        target_type = "ATR R/R Hedef (fallback)"
 
     rr_ratio = (target_price - price) / stop_dist if stop_dist > 0 else 0.0
     if rr_ratio < 1.5:
@@ -485,6 +638,8 @@ def calculate_smart_logic(df, symbol: str, cap: float):
         "score": final_score,
         "reasons": reasons,
         "rr": rr_ratio,
+        "tp_pct": tp_pct*100,
+        "sl_pct": sl_pct*100,
         "target_type": target_type,
         "rsi": curr_rsi,
         "stop_mult": stop_mult,
@@ -496,7 +651,7 @@ def calculate_smart_logic(df, symbol: str, cap: float):
 # ==================
 # --- ARAYÜZ ---
 # ==================
-tab_single, tab_hunter = st.tabs(["🛡️ TEKLİ ANALİZ", "🦅 BIST 30 AKILLI AVCI"])
+tab_single, tab_hunter = st.tabs(["🛡️ TEKLİ ANALİZ", "🦅 AKILLI AVCI"])
 
 # --- SEKME 1: TEKLİ ANALİZ ---
 with tab_single:
@@ -506,12 +661,12 @@ with tab_single:
 
     if symbol_input:
         with st.spinner("Veri + Smart RSI + CMB Composite hesaplanıyor..."):
-            df, sym = get_data(symbol_input)
+            df, sym = get_data(symbol_input, period, interval)
 
         if df is None:
             st.error("Veri çekilemedi. Hisse kodunu kontrol edin.")
         else:
-            st.caption(f"Veri kaynağı: {sym} | Periyot: 6mo | Interval: 60m")
+            st.caption(f"Veri kaynağı: {sym} | Periyot: {period} | Interval: {interval}")
 
             data = calculate_smart_logic(df, symbol_input, capital)
 
@@ -596,31 +751,62 @@ with tab_hunter:
         candidates = []
         bar = st.progress(0)
 
-        for i, ticker in enumerate(BIST30_TICKERS):
-            df_scan, _ = get_data(ticker)
-            if df_scan is not None and len(df_scan) > 250:
-                res = calculate_smart_logic(df_scan, ticker, capital)
+        
+        tickers = build_universe(universe)
 
-                # Filtre: skor & rr, ya da özel setup
-                is_special_setup = any(
-                    ("Dip Dönüşü" in r) or ("Breakout" in r) or ("Bull Pullback" in r)
-                    for r in res["reasons"]
-                )
+        # Eğer seçilen evren boş döndüyse yine de BIST30 ile devam edelim
+        if not tickers:
+            tickers = [t + ".IS" for t in BIST30_TICKERS]
 
-                if (res["score"] >= 65 and res["rr"] >= 1.5) or is_special_setup:
-                    candidates.append(res)
+        candidates = []
+        bar = st.progress(0.0)
 
-            bar.progress((i + 1) / len(BIST30_TICKERS))
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _scan_one(tkr: str):
+            # tkr genelde 'AKBNK.IS' gibi gelir; calculate fonksiyonu sembol ister
+            sym = tkr.replace(".IS", "")
+            df_scan, _ = get_data(sym, period, interval)
+            if df_scan is None or len(df_scan) <= 250:
+                return None
+            rt_price = get_realtime_price(sym)
+            res = calculate_smart_logic(df_scan, sym, capital, current_price=rt_price)
+
+            # Filtre: skor & rr, ya da özel setup
+            is_special_setup = any(
+                ("Dip Dönüşü" in r) or ("Breakout" in r) or ("Bull Pullback" in r)
+                for r in res["reasons"]
+            )
+
+            if (res["score"] >= min_score and res["rr"] >= min_rr) or is_special_setup:
+                return res
+            return None
+
+        max_workers = 10  # BIST100+ için iyi denge
+        futures = []
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = [ex.submit(_scan_one, t) for t in tickers]
+            done = 0
+            total = len(futures)
+            for fut in as_completed(futures):
+                done += 1
+                try:
+                    r = fut.result()
+                    if r:
+                        candidates.append(r)
+                except Exception:
+                    pass
+                bar.progress(done / total)
 
         bar.empty()
         elapsed = time.time() - start
 
         if candidates:
-            candidates.sort(key=lambda x: x["score"], reverse=True)
-            top_5 = candidates[:5]
+            candidates.sort(key=lambda x: (x["score"], x["rr"]), reverse=True)
+            top_list = candidates[:top_n]
 
-            st.success(f"Tarama tamamlandı ({elapsed:.1f} sn). En güçlü fırsatlar:")
-            for idx, item in enumerate(top_5):
+            st.success(f"Tarama tamamlandı ({elapsed:.1f} sn). En güçlü fırsatlar ({len(candidates)} adet eşleşme):")
+            for idx, item in enumerate(top_list):
                 with st.container():
                     c1, c2, c3 = st.columns([1, 2, 2])
                     with c1:
