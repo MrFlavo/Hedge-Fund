@@ -35,9 +35,10 @@ try:
     import pandas as pd
     import plotly.graph_objects as go
     import numpy as np
-except ImportError:
+except ImportError as e:
     st.error("⚠️ Kütüphane Eksik!")
-        st.info("Gereken paketleri requirements.txt üzerinden kurun (aşağıdaki öneriyi uygulayın).")
+    st.code(str(e))
+    st.info("Gereken paketleri requirements.txt üzerinden kurun (aşağıdaki öneriyi uygulayın).")
     st.stop()
 
 # =====================
