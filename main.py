@@ -51,13 +51,15 @@ try:
         ML_AVAILABLE = False
         st.warning("⚠️ ML libraries not available. Install: pip install xgboost scikit-learn")
     
-    # Deep Learning (optional)
-    try:
-        import tensorflow as tf
-        from tensorflow import keras
-        LSTM_AVAILABLE = True
-    except ImportError:
-        LSTM_AVAILABLE = False
+    # Deep Learning (optional - disabled for faster deployment)
+    LSTM_AVAILABLE = False
+    # Uncomment below to enable TensorFlow/LSTM features:
+    # try:
+    #     import tensorflow as tf
+    #     from tensorflow import keras
+    #     LSTM_AVAILABLE = True
+    # except ImportError:
+    #     LSTM_AVAILABLE = False
         
 except ImportError as e:
     st.error(f"⚠️ Missing libraries: {e}")
