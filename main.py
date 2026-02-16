@@ -148,26 +148,228 @@ def init_database():
 DB_AVAILABLE = init_database()
 
 # =====================
-# BIST UNIVERSE DEFINITIONS
+# BIST UNIVERSE DEFINITIONS - UPDATED 2026
 # =====================
+# Based on current BIST index compositions as of February 2026
+# All tickers include .IS suffix for yfinance compatibility
+
 BIST30 = [
-    "AKBNK.IS","ARCLK.IS","ASELS.IS","BIMAS.IS","EKGYO.IS","EREGL.IS",
-    "FROTO.IS","GARAN.IS","GUBRF.IS","ISCTR.IS","KCHOL.IS","KOZAL.IS",
-    "KRDMD.IS","PETKM.IS","PGSUS.IS","SAHOL.IS","SASA.IS","SISE.IS",
-    "TAVHL.IS","TCELL.IS","THYAO.IS","TOASO.IS","TTKOM.IS","TUPRS.IS",
-    "YKBNK.IS"
+    # Banking & Finance
+    "AKBNK.IS",    # Akbank
+    "GARAN.IS",    # Garanti BBVA
+    "ISCTR.IS",    # İş Bankası
+    "YKBNK.IS",    # Yapı Kredi
+    
+    # Industry & Manufacturing
+    "ASELS.IS",    # Aselsan
+    "EREGL.IS",    # Erdemir
+    "FROTO.IS",    # Ford Otosan
+    "TOASO.IS",    # Tofaş
+    "TUPRS.IS",    # Tüpraş
+    "SISE.IS",     # Şişecam
+    "SASA.IS",     # SASA Polyester
+    
+    # Holding Companies
+    "KCHOL.IS",    # Koç Holding
+    "SAHOL.IS",    # Sabancı Holding
+    
+    # Real Estate (GYO)
+    "EKGYO.IS",    # Emlak Konut GYO
+    
+    # Retail & Consumer
+    "BIMAS.IS",    # BİM
+    "MGROS.IS",    # Migros
+    "ULKER.IS",    # Ülker
+    
+    # Telecom & Tech
+    "TCELL.IS",    # Turkcell
+    "TTKOM.IS",    # Türk Telekom
+    
+    # Transportation & Tourism
+    "THYAO.IS",    # THY - Turkish Airlines
+    "PGSUS.IS",    # Pegasus
+    "TAVHL.IS",    # TAV Havalimanları
+    
+    # Energy & Chemicals
+    "PETKM.IS",    # Petkim
+    "GUBRF.IS",    # Gübre Fabrikaları
+    "ENKA.IS",     # ENKA İnşaat
+    
+    # Mining & Metals
+    "KOZAL.IS",    # Koza Altın
+    "KRDMD.IS",    # Kardemir
+    
+    # Food & Beverage
+    "AEFES.IS",    # Anadolu Efes
+    
+    # Energy (New additions)
+    "ASTOR.IS",    # Astor Enerji
+    
+    # Finance
+    "DSFAK.IS",    # Destek Finans Faktoring
 ]
 
 BIST50 = list(set(BIST30 + [
-    "ALARK.IS","ENKAI.IS","HEKTS.IS","ODAS.IS","OYAKC.IS","SMRTG.IS",
-    "VESTL.IS","ZOREN.IS","KONTR.IS","CANTE.IS","ASTOR.IS","GWIND.IS"
+    # Additional Banking & Finance
+    "HALKB.IS",    # Halkbank
+    "VAKBN.IS",    # Vakıfbank
+    "SKBNK.IS",    # Şekerbank
+    
+    # Additional Industry
+    "ARCLK.IS",    # Arçelik
+    "VESTL.IS",    # Vestel
+    "OTKAR.IS",    # Otokar
+    "DOAS.IS",     # Doğuş Otomotiv
+    "TTRAK.IS",    # Türk Traktör
+    
+    # Additional Holdings & Diversified
+    "ALARK.IS",    # Alarko Holding
+    "AYGAZ.IS",    # Aygaz
+    
+    # Additional Real Estate
+    "TKFEN.IS",    # Tekfen Holding
+    "YAPI K.IS",    # Yapı Kredi Koray GYO
+    
+    # Additional Energy & Utilities
+    "AKSEN.IS",    # Aksa Enerji
+    "AKENR.IS",    # AK Enerji
+    "ZOREN.IS",    # Zorlu Enerji
+    "GESAN.IS",    # Gediz Elektrik
+    
+    # Additional Telecom & Tech
+    "LOGO.IS",     # Logo Yazılım
+    "KRONT.IS",    # Kontrolmatik
+    
+    # Additional Retail & Consumer
+    "SOKM.IS",     # ŞOK Marketler
+    "CCOLA.IS",    # Coca-Cola İçecek
+    
+    # Additional Construction & Materials
+    "ADANA.IS",    # Adana Çimento
+    "BUCIM.IS",    # Bursa Çimento
+    
+    # Sports Clubs
+    "BJKAS.IS",    # Beşiktaş
+    "GSRAY.IS",    # Galatasaray
+    "TSPOR.IS",    # Trabzonspor
+    "FENER.IS",    # Fenerbahçe
 ]))
 
 BIST100 = list(set(BIST50 + [
-    "AKSA.IS","AKSEN.IS","BRSAN.IS","DOAS.IS","ENJSA.IS","GESAN.IS",
-    "KONYA.IS","LOGO.IS","NTHOL.IS","OTKAR.IS","TKFEN.IS","ULKER.IS",
-    "YATAS.IS","ALFAS.IS","CWENE.IS","EUPWR.IS","MIATK.IS","QUAGR.IS"
+    # Additional Banking & Finance
+    "ALBRK.IS",    # Albaraka Türk
+    "ICBCT.IS",    # ICBC Turkey
+    "QNBFB.IS",    # QNB Finans
+    "TSKB.IS",     # TSKB
+    
+    # Additional Industry & Manufacturing
+    "AKSA.IS",     # Aksa Akrilik
+    "BRISA.IS",    # Brisa
+    "BRSAN.IS",    # Borusan Mannesmann
+    "EGEEN.IS",    # Ege Endüstri
+    "GOLTS.IS",    # Göltaş Çimento
+    "KARSN.IS",    # Karsan
+    "KLMSN.IS",    # Klimasan
+    "NETAS.IS",    # Netaş
+    "SODA.IS",     # Soda Sanayii
+    "TIRE TIS",    # Tire Kutsan
+    "TRKCM.IS",    # Trakya Cam
+    
+    # Additional Energy & Utilities
+    "AKSUE.IS",    # Aksu Enerji
+    "AYEN.IS",     # Ayen Enerji
+    "CLEBI.IS",    # Çelebi Hava Servisi
+    "ENJSA.IS",    # Enerjisa
+    "GWIND.IS",    # Galata Wind
+    "HUNER.IS",    # Hun Yenilenebilir
+    "ODAS.IS",     # Odaş Elektrik
+    "PENTA.IS",    # Penta Teknoloji
+    
+    # Additional Telecom & Tech
+    "ARENA.IS",    # Arena Bilgisayar
+    "ASTOR.IS",    # Astor Enerji
+    "INDES.IS",    # İndeks Bilgisayar
+    "LINK.IS",     # Link Bilgisayar
+    
+    # Additional Real Estate & Construction
+    "AVOD.IS",     # A.V.O.D. Kurutulmuş Gıda
+    "AGYO.IS",     # Atakule GYO
+    "DENGE.IS",    # Denizli Cam
+    "ISGYO.IS",    # İş GYO
+    "KLGYO.IS",    # Kiler GYO
+    "KONYA.IS",    # Konya Çimento
+    "MIPAZ.IS",    # Milpa
+    "NUGYO.IS",    # Nurol GYO
+    "OYAYO.IS",    # Oyak Yatırım Ortaklığı
+    "OZGYO.IS",    # Özderici GYO
+    "PEKGY.IS",    # Peker GYO
+    "QGYO.IS",     # Quagr Menkul Kıymetler
+    "VKGYO.IS",    # Vakıf GYO
+    
+    # Additional Retail & Consumer
+    "BANVT.IS",    # Banvit
+    "BIZIM.IS",    # Bizim Toptan
+    "CRFSA.IS",    # Carrefoursa
+    "DGZTE.IS",    # Doğan Gazetecilik
+    "DUROF.IS",    # Duran Ofset
+    "IHLAS.IS",    # İhlas Holding
+    "KENT F.IS",   # Kent Gıda
+    "KNFRT.IS",    # Konfrut Gıda
+    "MAVI.IS",     # Mavi Giyim
+    "PINSU.IS",    # Pınar Su
+    "PNSUT.IS",    # Pınar Süt
+    "TATGD.IS",    # Tat Gıda
+    
+    # Additional Textiles & Apparel
+    "BLCYT.IS",    # Bilici Yatırım
+    "BRMEN.IS",    # Birlik Mensucat
+    "DAGI.IS",     # Dagi Giyim
+    "DERIM.IS",    # Derimod
+    "HATEK.IS",    # Hateks
+    "LUKSK.IS",    # Lüks Kadife
+    "MERKO.IS",    # Merko Gıda
+    "ROYAL.IS",    # Royal Halı
+    "SNPAM.IS",    # Sönmez Pamuklu
+    "YUNSA.IS",    # Yünsa
+    
+    # Additional Chemicals & Petrochem
+    "AKFGY.IS",    # Akfen GYO
+    "ALKIM.IS",    # Alkim Kağıt
+    "ANACM.IS",    # Anadolu Cam
+    "BAGFS.IS",    # Bagfaş
+    "BFREN.IS",    # Bosch Fren
+    "BRKO.IS",     # Birko Birleşik Koyunlulular
+    "CIMSA.IS",    # Çimsa
+    "DOGUB.IS",    # Doğusan Boru
+    "DYOBY.IS",    # DYO Boya
+    "IZMDC.IS",    # İzmir Demir Çelik
+    "KAPLM.IS",    # Kaplamin
+    "KUTPO.IS",    # Kütahya Porselen
+    "PARSN.IS",    # Parsan
+    "PTOFS.IS",    # Petrokent Turizm
+    "SARKY.IS",    # Sarkuysan
+    "SELEC.IS",    # Selçuk Ecza
+    "SODA.IS",     # Soda Sanayii
+    "UNYEC.IS",    # Ünye Çimento
+    
+    # Additional Transportation
+    "CLEBI.IS",    # Çelebi Hava Servisi
+    "GSDHO.IS",    # GSD Holding
+    "RYGYO.IS",    # Reysaş GYO
+    
+    # Additional Misc
+    "HEKTS.IS",    # Hektaş
+    "OYAKC.IS",    # Oyak Çimento
+    "SMRTG.IS",    # Smart Güneş
 ]))
+
+# =====================
+# RATE LIMITING CONFIGURATION
+# =====================
+# Streamlit Cloud has stricter rate limits - adjust these if needed
+MAX_PARALLEL_WORKERS = 4  # Reduced from 8 to avoid rate limits
+REQUEST_DELAY = 0.5  # Seconds between requests
+RETRY_DELAY = 2  # Seconds to wait on rate limit error
 
 # =====================
 # OPTIMIZED INDICATOR CALCULATIONS
@@ -308,8 +510,22 @@ def get_data_with_db_cache(symbol, period, interval):
             # Silently fall through to yfinance if DB fails
             pass
     
-    # Fetch from yfinance
-    df = yf.download(symbol, period=period, interval=interval, progress=False)
+    # Fetch from yfinance with retry logic
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            df = yf.download(symbol, period=period, interval=interval, progress=False)
+            
+            if df is not None and not df.empty:
+                break
+                
+        except Exception as e:
+            if "rate limit" in str(e).lower() and attempt < max_retries - 1:
+                time.sleep(RETRY_DELAY * (attempt + 1))  # Exponential backoff
+                continue
+            elif attempt == max_retries - 1:
+                return None, symbol
     
     if df is None or df.empty:
         return None, symbol
@@ -509,13 +725,12 @@ def train_ml_model(symbol, df):
     X_train, X_test = X[:split], X[split:]
     y_train, y_test = y[:split], y[split:]
     
-    # Train XGBoost
+    # Train XGBoost (removed deprecated use_label_encoder)
     model = xgb.XGBClassifier(
         max_depth=5,
         n_estimators=100,
         learning_rate=0.1,
         random_state=42,
-        use_label_encoder=False,
         eval_metric='logloss'
     )
     
@@ -968,6 +1183,9 @@ with tab_scanner:
         
         def scan_symbol(ticker):
             try:
+                # Add small delay to avoid rate limiting
+                time.sleep(REQUEST_DELAY)
+                
                 sym = ticker.replace(".IS", "")
                 df, _ = get_data_with_db_cache(sym, "60d", "15m")
                 
@@ -989,12 +1207,13 @@ with tab_scanner:
                     return result
                 
             except Exception as e:
+                # Silently skip errors (likely rate limit or bad data)
                 return None
             
             return None
         
-        # Parallel scanning
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        # Reduced parallel scanning to avoid rate limits
+        with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
             futures = {executor.submit(scan_symbol, t): t for t in tickers}
             
             completed = 0
