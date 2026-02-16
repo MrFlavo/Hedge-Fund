@@ -1,16 +1,13 @@
-# PROP DESK V7.0 Requirements
-# Core Dependencies
+# PROP DESK V7.0 - Streamlit Cloud Optimized
+# Compatible with Python 3.13
+
 streamlit>=1.31.0
 yfinance>=0.2.36
 pandas>=2.0.0
 numpy>=1.24.0
 plotly>=5.18.0
-
-# Machine Learning
 xgboost>=2.0.0
 scikit-learn>=1.3.0
 
-# Optional: Deep Learning (comment out if not needed to speed up install)
-# tensorflow>=2.15.0
-
-# Note: sqlite3 is built into Python, no separate install needed
+# Note: TensorFlow removed for faster deployment
+# SQLite3 is built into Python
