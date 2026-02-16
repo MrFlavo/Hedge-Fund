@@ -9,13 +9,8 @@ plotly>=5.18.0
 # Machine Learning
 xgboost>=2.0.0
 scikit-learn>=1.3.0
-tensorflow>=2.15.0  # Optional for LSTM
 
-# Database
-sqlite3  # Built-in with Python
+# Optional: Deep Learning (comment out if not needed to speed up install)
+# tensorflow>=2.15.0
 
-# Performance
-concurrent.futures  # Built-in with Python
-
-# Optional for advanced features
-pandas-ta>=0.3.14b  # Additional TA indicators
+# Note: sqlite3 is built into Python, no separate install needed
