@@ -69,73 +69,83 @@ except ImportError as e:
 # =====================
 # DATABASE SETUP
 # =====================
-DB_PATH = "/home/claude/bist_trading_data.db"
+import tempfile
+import os
+
+# Use temporary directory for Streamlit Cloud compatibility
+TEMP_DIR = tempfile.gettempdir()
+DB_PATH = os.path.join(TEMP_DIR, "bist_trading_data.db")
 
 def init_database():
     """Initialize SQLite database for caching historical data"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Price data table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS price_data (
-            symbol TEXT,
-            timestamp TEXT,
-            open REAL,
-            high REAL,
-            low REAL,
-            close REAL,
-            volume INTEGER,
-            interval TEXT,
-            PRIMARY KEY (symbol, timestamp, interval)
-        )
-    """)
-    
-    # Indicator cache table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS indicator_cache (
-            symbol TEXT,
-            timestamp TEXT,
-            indicator_name TEXT,
-            value REAL,
-            interval TEXT,
-            PRIMARY KEY (symbol, timestamp, indicator_name, interval)
-        )
-    """)
-    
-    # Trade history table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS trade_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT,
-            entry_time TEXT,
-            exit_time TEXT,
-            entry_price REAL,
-            exit_price REAL,
-            qty INTEGER,
-            pnl REAL,
-            reason TEXT,
-            score INTEGER,
-            strategy TEXT
-        )
-    """)
-    
-    # Portfolio state table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS portfolio_state (
-            timestamp TEXT PRIMARY KEY,
-            total_equity REAL,
-            cash REAL,
-            positions TEXT,
-            daily_pnl REAL
-        )
-    """)
-    
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Price data table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS price_data (
+                symbol TEXT,
+                timestamp TEXT,
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                volume INTEGER,
+                interval TEXT,
+                PRIMARY KEY (symbol, timestamp, interval)
+            )
+        """)
+        
+        # Indicator cache table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS indicator_cache (
+                symbol TEXT,
+                timestamp TEXT,
+                indicator_name TEXT,
+                value REAL,
+                interval TEXT,
+                PRIMARY KEY (symbol, timestamp, indicator_name, interval)
+            )
+        """)
+        
+        # Trade history table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS trade_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT,
+                entry_time TEXT,
+                exit_time TEXT,
+                entry_price REAL,
+                exit_price REAL,
+                qty INTEGER,
+                pnl REAL,
+                reason TEXT,
+                score INTEGER,
+                strategy TEXT
+            )
+        """)
+        
+        # Portfolio state table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS portfolio_state (
+                timestamp TEXT PRIMARY KEY,
+                total_equity REAL,
+                cash REAL,
+                positions TEXT,
+                daily_pnl REAL
+            )
+        """)
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.warning(f"⚠️ Database initialization failed: {e}. Running without database caching.")
+        return False
 
-# Initialize DB on startup
-init_database()
+# Initialize DB on startup - don't fail if it doesn't work
+DB_AVAILABLE = init_database()
 
 # =====================
 # BIST UNIVERSE DEFINITIONS
@@ -265,36 +275,38 @@ def _adx_vectorized(high, low, close, length=14):
 # =====================
 @st.cache_data(ttl=900, show_spinner=False)
 def get_data_with_db_cache(symbol, period, interval):
-    """Fetch data with database caching"""
+    """Fetch data with database caching (optional - falls back to direct fetch)"""
     symbol = symbol.upper().strip()
     if len(symbol) <= 5 and not symbol.endswith(".IS"):
         symbol += ".IS"
     
-    # Try database first
-    conn = sqlite3.connect(DB_PATH)
-    query = """
-        SELECT * FROM price_data 
-        WHERE symbol = ? AND interval = ?
-        ORDER BY timestamp DESC
-        LIMIT 1000
-    """
-    
-    try:
-        df_cached = pd.read_sql_query(query, conn, params=(symbol, interval))
-        if not df_cached.empty:
-            df_cached['timestamp'] = pd.to_datetime(df_cached['timestamp'])
-            df_cached.set_index('timestamp', inplace=True)
+    # Try database first (only if available)
+    if DB_AVAILABLE:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            query = """
+                SELECT * FROM price_data 
+                WHERE symbol = ? AND interval = ?
+                ORDER BY timestamp DESC
+                LIMIT 1000
+            """
             
-            # Check if cache is fresh (< 15 min old)
-            if len(df_cached) > 0:
-                latest_time = df_cached.index[-1]
-                if datetime.now() - latest_time < timedelta(minutes=15):
-                    conn.close()
-                    return calculate_indicators(df_cached), symbol
-    except Exception:
-        pass
-    
-    conn.close()
+            df_cached = pd.read_sql_query(query, conn, params=(symbol, interval))
+            if not df_cached.empty:
+                df_cached['timestamp'] = pd.to_datetime(df_cached['timestamp'])
+                df_cached.set_index('timestamp', inplace=True)
+                
+                # Check if cache is fresh (< 15 min old)
+                if len(df_cached) > 0:
+                    latest_time = df_cached.index[-1]
+                    if datetime.now() - latest_time < timedelta(minutes=15):
+                        conn.close()
+                        return calculate_indicators(df_cached), symbol
+            
+            conn.close()
+        except Exception:
+            # Silently fall through to yfinance if DB fails
+            pass
     
     # Fetch from yfinance
     df = yf.download(symbol, period=period, interval=interval, progress=False)
@@ -308,29 +320,31 @@ def get_data_with_db_cache(symbol, period, interval):
     
     df.columns = [c.title() for c in df.columns]
     
-    # Save to database
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        df_to_save = df.reset_index()
-        df_to_save['symbol'] = symbol
-        df_to_save['interval'] = interval
-        df_to_save.rename(columns={'Date': 'timestamp', 'Datetime': 'timestamp'}, inplace=True)
-        
-        for _, row in df_to_save.iterrows():
-            conn.execute("""
-                INSERT OR REPLACE INTO price_data 
-                (symbol, timestamp, open, high, low, close, volume, interval)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                row['symbol'], str(row['timestamp']), 
-                row['Open'], row['High'], row['Low'], row['Close'],
-                row['Volume'], row['interval']
-            ))
-        
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        st.warning(f"Database cache save failed: {e}")
+    # Save to database (only if available)
+    if DB_AVAILABLE:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            df_to_save = df.reset_index()
+            df_to_save['symbol'] = symbol
+            df_to_save['interval'] = interval
+            df_to_save.rename(columns={'Date': 'timestamp', 'Datetime': 'timestamp'}, inplace=True)
+            
+            for _, row in df_to_save.iterrows():
+                conn.execute("""
+                    INSERT OR REPLACE INTO price_data 
+                    (symbol, timestamp, open, high, low, close, volume, interval)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    row['symbol'], str(row['timestamp']), 
+                    row['Open'], row['High'], row['Low'], row['Close'],
+                    row['Volume'], row['interval']
+                ))
+            
+            conn.commit()
+            conn.close()
+        except Exception:
+            # Silently ignore DB save errors
+            pass
     
     return calculate_indicators(df), symbol
 
@@ -1043,42 +1057,53 @@ with tab_scanner:
 # =====================
 with tab_portfolio:
     st.markdown("### 💼 Portfolio Management")
-    st.info("Track your positions, calculate portfolio metrics, and manage risk")
     
-    # Load portfolio state
-    conn = sqlite3.connect(DB_PATH)
-    portfolio_df = pd.read_sql_query(
-        "SELECT * FROM portfolio_state ORDER BY timestamp DESC LIMIT 30",
-        conn
-    )
-    conn.close()
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.metric("Total Equity", "₺100,000")  # Placeholder
-        st.metric("Cash Available", "₺85,000")
-        st.metric("Open Positions", "3")
-    
-    with col2:
-        st.metric("Daily P&L", "+₺2,450", delta="2.45%")
-        st.metric("Win Rate", "68%")
-        st.metric("Profit Factor", "2.1")
-    
-    # Trade history
-    st.markdown("### 📜 Recent Trades")
-    
-    conn = sqlite3.connect(DB_PATH)
-    trades_df = pd.read_sql_query(
-        "SELECT * FROM trade_history ORDER BY exit_time DESC LIMIT 20",
-        conn
-    )
-    conn.close()
-    
-    if not trades_df.empty:
-        st.dataframe(trades_df, use_container_width=True)
+    if not DB_AVAILABLE:
+        st.warning("⚠️ Database not available. Portfolio tracking disabled in this environment.")
+        st.info("💡 Run locally for full database features: `streamlit run prop_desk_v7_upgraded.py`")
     else:
-        st.info("No trade history yet")
+        st.info("Track your positions, calculate portfolio metrics, and manage risk")
+        
+        # Load portfolio state
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            portfolio_df = pd.read_sql_query(
+                "SELECT * FROM portfolio_state ORDER BY timestamp DESC LIMIT 30",
+                conn
+            )
+            conn.close()
+        except Exception:
+            portfolio_df = pd.DataFrame()
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Total Equity", "₺100,000")  # Placeholder
+            st.metric("Cash Available", "₺85,000")
+            st.metric("Open Positions", "3")
+        
+        with col2:
+            st.metric("Daily P&L", "+₺2,450", delta="2.45%")
+            st.metric("Win Rate", "68%")
+            st.metric("Profit Factor", "2.1")
+        
+        # Trade history
+        st.markdown("### 📜 Recent Trades")
+        
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            trades_df = pd.read_sql_query(
+                "SELECT * FROM trade_history ORDER BY exit_time DESC LIMIT 20",
+                conn
+            )
+            conn.close()
+            
+            if not trades_df.empty:
+                st.dataframe(trades_df, use_container_width=True)
+            else:
+                st.info("No trade history yet")
+        except Exception:
+            st.info("Trade history unavailable")
 
 # =====================
 # TAB 4: ANALYTICS
@@ -1086,46 +1111,53 @@ with tab_portfolio:
 with tab_analytics:
     st.markdown("### 📈 Performance Analytics")
     
-    conn = sqlite3.connect(DB_PATH)
-    
-    # Get trade stats
-    trades_df = pd.read_sql_query("SELECT * FROM trade_history", conn)
-    
-    conn.close()
-    
-    if not trades_df.empty:
-        col1, col2, col3, col4 = st.columns(4)
-        
-        total_trades = len(trades_df)
-        wins = len(trades_df[trades_df["pnl"] > 0])
-        win_rate = wins / total_trades * 100 if total_trades > 0 else 0
-        
-        avg_win = trades_df[trades_df["pnl"] > 0]["pnl"].mean() if wins > 0 else 0
-        avg_loss = trades_df[trades_df["pnl"] < 0]["pnl"].mean() if total_trades - wins > 0 else 0
-        profit_factor = abs(avg_win / avg_loss) if avg_loss != 0 else 0
-        
-        col1.metric("Total Trades", total_trades)
-        col2.metric("Win Rate", f"{win_rate:.1f}%")
-        col3.metric("Avg Win", f"₺{avg_win:.0f}")
-        col4.metric("Profit Factor", f"{profit_factor:.2f}")
-        
-        # Equity curve
-        st.markdown("### 📊 Equity Curve")
-        trades_df["cumulative_pnl"] = trades_df["pnl"].cumsum()
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=trades_df["exit_time"],
-            y=trades_df["cumulative_pnl"],
-            mode="lines+markers",
-            name="Cumulative P&L"
-        ))
-        
-        fig.update_layout(height=400, template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
-        
+    if not DB_AVAILABLE:
+        st.warning("⚠️ Database not available. Analytics disabled in this environment.")
+        st.info("💡 Run locally for full analytics: `streamlit run prop_desk_v7_upgraded.py`")
     else:
-        st.info("No trading data available for analytics")
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            
+            # Get trade stats
+            trades_df = pd.read_sql_query("SELECT * FROM trade_history", conn)
+            
+            conn.close()
+            
+            if not trades_df.empty:
+                col1, col2, col3, col4 = st.columns(4)
+                
+                total_trades = len(trades_df)
+                wins = len(trades_df[trades_df["pnl"] > 0])
+                win_rate = wins / total_trades * 100 if total_trades > 0 else 0
+                
+                avg_win = trades_df[trades_df["pnl"] > 0]["pnl"].mean() if wins > 0 else 0
+                avg_loss = trades_df[trades_df["pnl"] < 0]["pnl"].mean() if total_trades - wins > 0 else 0
+                profit_factor = abs(avg_win / avg_loss) if avg_loss != 0 else 0
+                
+                col1.metric("Total Trades", total_trades)
+                col2.metric("Win Rate", f"{win_rate:.1f}%")
+                col3.metric("Avg Win", f"₺{avg_win:.0f}")
+                col4.metric("Profit Factor", f"{profit_factor:.2f}")
+                
+                # Equity curve
+                st.markdown("### 📊 Equity Curve")
+                trades_df["cumulative_pnl"] = trades_df["pnl"].cumsum()
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=trades_df["exit_time"],
+                    y=trades_df["cumulative_pnl"],
+                    mode="lines+markers",
+                    name="Cumulative P&L"
+                ))
+                
+                fig.update_layout(height=400, template="plotly_dark")
+                st.plotly_chart(fig, use_container_width=True)
+                
+            else:
+                st.info("No trading data available for analytics")
+        except Exception:
+            st.error("Unable to load analytics data")
 
 st.markdown("---")
 st.caption("🚀 PROP DESK V7.0 | Built with ML, MTF Analysis & Advanced Day Trading Indicators")
