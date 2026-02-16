@@ -1006,10 +1006,10 @@ st.title("🚀 PROP DESK V7.0 - ML ENHANCED INTRADAY SYSTEM")
 st.caption("Advanced day trading with VWAP, MFI, Multi-Timeframe, ML Score & Database Caching")
 
 tab_single, tab_scanner, tab_portfolio, tab_analytics = st.tabs([
-    "📊 Single Analysis", 
-    "🔍 ML Scanner", 
-    "💼 Portfolio Manager",
-    "📈 Analytics & Performance"
+    "📊 Analiz Motoru", 
+    "🔍 Para Avcısı", 
+    "💼 Portfolyo",
+    "📈 Analiz"
 ])
 
 # =====================
