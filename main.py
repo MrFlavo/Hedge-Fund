@@ -54,10 +54,13 @@ try:
     
     # Deep Learning (optional - disabled for faster deployment)
     LSTM_AVAILABLE = False
+
+    # HTTP requests for alternative data providers
+    import requests
         
 except ImportError as e:
     st.error(f"⚠️ Missing libraries: {e}")
-    st.code("pip install yfinance pandas plotly numpy xgboost scikit-learn tensorflow")
+    st.code("pip install yfinance pandas plotly numpy xgboost scikit-learn tensorflow requests")
     st.stop()
 
 # =====================
@@ -339,6 +342,134 @@ REQUEST_DELAY = 0.5  # Seconds between requests
 RETRY_DELAY = 2  # Seconds to wait on rate limit error
 
 # =====================
+# REAL-TIME DATA PROVIDER CONFIGURATION
+# =====================
+# Finnhub.io free tier: 60 API calls/minute, covers BIST (Istanbul Stock Exchange)
+# Get your free API key at: https://finnhub.io/register
+# Set it in Streamlit sidebar or as environment variable FINNHUB_API_KEY
+
+FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
+
+def _get_finnhub_key():
+    """Get Finnhub API key from session state or environment"""
+    key = st.session_state.get("finnhub_api_key", "")
+    if not key:
+        key = os.environ.get("FINNHUB_API_KEY", "")
+    return key.strip()
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_realtime_quote_finnhub(symbol):
+    """
+    Fetch real-time quote from Finnhub (free tier).
+    Returns dict with current price, high, low, open, prev_close, timestamp.
+    Finnhub uses exchange:SYMBOL format for BIST → use symbol without .IS
+    """
+    api_key = _get_finnhub_key()
+    if not api_key:
+        return None
+    
+    # Finnhub BIST symbols: prefix with 'IS:' for Istanbul Stock Exchange
+    clean_sym = symbol.upper().replace(".IS", "")
+    finnhub_symbol = f"IS:{clean_sym}"
+    
+    try:
+        resp = requests.get(
+            f"{FINNHUB_BASE_URL}/quote",
+            params={"symbol": finnhub_symbol, "token": api_key},
+            timeout=5
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            # Finnhub returns: c=current, h=high, l=low, o=open, pc=prevClose, t=timestamp
+            if data and data.get("c", 0) > 0:
+                return {
+                    "current": data["c"],
+                    "high": data["h"],
+                    "low": data["l"],
+                    "open": data["o"],
+                    "prev_close": data["pc"],
+                    "change": data.get("d", 0),
+                    "change_pct": data.get("dp", 0),
+                    "timestamp": data.get("t", 0),
+                    "source": "Finnhub (Real-time)"
+                }
+    except Exception:
+        pass
+    return None
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_realtime_quote_yf(symbol):
+    """
+    Fetch latest quote using yfinance Ticker.fast_info (faster than download).
+    Returns dict with current price and metadata.
+    """
+    try:
+        clean_sym = symbol.upper().replace(".IS", "") + ".IS"
+        ticker = yf.Ticker(clean_sym)
+        info = ticker.fast_info
+        
+        if info and hasattr(info, 'last_price') and info.last_price:
+            return {
+                "current": float(info.last_price),
+                "prev_close": float(info.previous_close) if hasattr(info, 'previous_close') else 0,
+                "open": float(info.open) if hasattr(info, 'open') else 0,
+                "high": float(info.day_high) if hasattr(info, 'day_high') else 0,
+                "low": float(info.day_low) if hasattr(info, 'day_low') else 0,
+                "change": float(info.last_price - info.previous_close) if hasattr(info, 'previous_close') else 0,
+                "change_pct": float((info.last_price - info.previous_close) / info.previous_close * 100) if hasattr(info, 'previous_close') and info.previous_close > 0 else 0,
+                "timestamp": int(datetime.now().timestamp()),
+                "source": "Yahoo Finance (fast_info)"
+            }
+    except Exception:
+        pass
+    return None
+
+def get_realtime_quote(symbol):
+    """
+    Multi-provider real-time quote: tries Finnhub first, then yfinance fast_info.
+    Returns the freshest available quote.
+    """
+    # Try Finnhub first (truly real-time for supported markets)
+    quote = get_realtime_quote_finnhub(symbol)
+    if quote:
+        return quote
+    
+    # Fallback: yfinance fast_info (usually 15-min delayed but faster than download)
+    quote = get_realtime_quote_yf(symbol)
+    if quote:
+        return quote
+    
+    return None
+
+def format_data_age(df):
+    """Calculate how old the latest data point is and return a human-readable string + color."""
+    if df is None or df.empty:
+        return "No data", "🔴", "#d50000"
+    
+    try:
+        last_ts = df.index[-1]
+        if hasattr(last_ts, 'tz') and last_ts.tz is not None:
+            now = datetime.now(last_ts.tz)
+        else:
+            now = datetime.now()
+        
+        age = now - last_ts
+        minutes = age.total_seconds() / 60
+        
+        if minutes < 5:
+            return f"{int(minutes)}m ago", "🟢", "#00c853"
+        elif minutes < 15:
+            return f"{int(minutes)}m ago", "🟡", "#ffd600"
+        elif minutes < 60:
+            return f"{int(minutes)}m ago", "🟠", "#ff9100"
+        elif minutes < 120:
+            return f"{int(minutes/60):.0f}h {int(minutes%60)}m ago", "🟠", "#ff6d00"
+        else:
+            return f"{int(minutes/60):.0f}h {int(minutes%60)}m ago", "🔴", "#d50000"
+    except Exception:
+        return "Unknown", "⚪", "#888888"
+
+# =====================
 # OPTIMIZED INDICATOR CALCULATIONS
 # =====================
 def _ema_vectorized(series, length):
@@ -442,9 +573,13 @@ def _adx_vectorized(high, low, close, length=14):
 # =====================
 # ADVANCED DATA FETCHING WITH CACHING
 # =====================
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def get_data_with_db_cache(symbol, period, interval):
-    """Fetch data with database caching (optional - falls back to direct fetch)"""
+    """Fetch data with database caching (optional - falls back to direct fetch).
+    
+    TTL reduced to 120s (2 min) for fresher data. Combined with real-time quote
+    overlay from Finnhub/yfinance fast_info for latest price updates.
+    """
     symbol = symbol.upper().strip()
     if len(symbol) <= 5 and not symbol.endswith(".IS"):
         symbol += ".IS"
@@ -465,10 +600,10 @@ def get_data_with_db_cache(symbol, period, interval):
                 df_cached['timestamp'] = pd.to_datetime(df_cached['timestamp'])
                 df_cached.set_index('timestamp', inplace=True)
                 
-                # Check if cache is fresh (< 15 min old)
+                # Check if cache is fresh (< 2 min old for near-realtime)
                 if len(df_cached) > 0:
                     latest_time = df_cached.index[-1]
-                    if datetime.now() - latest_time < timedelta(minutes=15):
+                    if datetime.now() - latest_time < timedelta(minutes=2):
                         conn.close()
                         return calculate_indicators(df_cached), symbol
             
@@ -589,10 +724,12 @@ def calculate_indicators(df):
 # =====================
 # MULTI-TIMEFRAME ANALYSIS
 # =====================
-def get_mtf_data(symbol, timeframes=['5m', '15m', '1h']):
-    """Fetch multiple timeframes for confluence analysis"""
+def get_mtf_data(symbol, timeframes=['2m', '5m', '15m', '1h']):
+    """Fetch multiple timeframes for confluence analysis.
+    Added 2m timeframe for near-realtime data (max 7 days lookback).
+    """
     mtf_data = {}
-    periods_map = {'5m': '5d', '15m': '30d', '1h': '60d', '1d': '1y'}
+    periods_map = {'1m': '1d', '2m': '5d', '5m': '5d', '15m': '30d', '1h': '60d', '1d': '1y'}
     
     for tf in timeframes:
         period = periods_map.get(tf, '60d')
@@ -1060,7 +1197,42 @@ st.markdown("""
 # MAIN APPLICATION
 # =====================
 st.title("🚀 PROP DESK V7.0 - ML ENHANCED INTRADAY SYSTEM")
-st.caption("Advanced day trading with VWAP, MFI, Multi-Timeframe, ML Score & Database Caching")
+st.caption("Advanced day trading with VWAP, MFI, Multi-Timeframe, ML Score & Real-Time Data")
+
+# =====================
+# SIDEBAR: DATA PROVIDER SETTINGS
+# =====================
+with st.sidebar:
+    st.markdown("### ⚡ Data Provider Settings")
+    
+    finnhub_key = st.text_input(
+        "🔑 Finnhub API Key (Free)",
+        value=st.session_state.get("finnhub_api_key", os.environ.get("FINNHUB_API_KEY", "")),
+        type="password",
+        help="Get your FREE API key at https://finnhub.io/register — enables real-time BIST quotes (60 calls/min)"
+    )
+    st.session_state["finnhub_api_key"] = finnhub_key
+    
+    if finnhub_key:
+        st.success("✅ Finnhub active — Real-time quotes enabled")
+    else:
+        st.info("💡 Add a free Finnhub key for real-time BIST data. Without it, data may be 15-120 min delayed.")
+        st.markdown("[🔗 Get Free Key](https://finnhub.io/register)")
+    
+    st.markdown("---")
+    
+    data_interval = st.selectbox(
+        "📊 Chart Interval",
+        options=["2m", "5m", "15m", "1h"],
+        index=2,  # Default: 15m
+        help="2m = Freshest (5 day lookback) | 5m = Fresh (5 day) | 15m = Standard (30 day) | 1h = Extended (60 day)"
+    )
+    
+    interval_period_map = {"2m": "5d", "5m": "5d", "15m": "30d", "1h": "60d"}
+    data_period = interval_period_map[data_interval]
+    
+    st.caption(f"Interval: **{data_interval}** | Lookback: **{data_period}**")
+    st.markdown("---")
 
 tab_single, tab_scanner, tab_portfolio, tab_analytics = st.tabs([
     "📊 Single Analysis", 
@@ -1086,12 +1258,53 @@ with tab_single:
     
     if st.button("🔍 Analyze", type="primary"):
         with st.spinner("Analyzing with ML & Multi-Timeframe..."):
-            # Get main data
-            df, sym = get_data_with_db_cache(symbol_input, "60d", "15m")
+            # Get main data using sidebar interval settings
+            df, sym = get_data_with_db_cache(symbol_input, data_period, data_interval)
             
             if df is None:
                 st.error("❌ Data fetch failed")
             else:
+                # === REAL-TIME QUOTE OVERLAY ===
+                rt_quote = get_realtime_quote(symbol_input)
+                
+                # Data freshness indicator
+                age_str, age_icon, age_color = format_data_age(df)
+                
+                freshness_cols = st.columns([2, 2, 2])
+                with freshness_cols[0]:
+                    st.markdown(f"""
+                        <div style="padding:8px 12px; border-radius:8px; background:rgba(0,229,255,0.08); border-left:3px solid {age_color};">
+                            {age_icon} <b>Chart Data:</b> {age_str} <span style="color:#888;">({data_interval} bars)</span>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with freshness_cols[1]:
+                    if rt_quote:
+                        rt_change_color = "#00c853" if rt_quote["change"] >= 0 else "#d50000"
+                        rt_sign = "+" if rt_quote["change"] >= 0 else ""
+                        st.markdown(f"""
+                            <div style="padding:8px 12px; border-radius:8px; background:rgba(0,200,83,0.08); border-left:3px solid #00c853;">
+                                🟢 <b>Live Price:</b> ₺{rt_quote['current']:.2f} 
+                                <span style="color:{rt_change_color};">({rt_sign}{rt_quote['change_pct']:.2f}%)</span>
+                                <br><span style="color:#888; font-size:0.8em;">{rt_quote['source']}</span>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown("""
+                            <div style="padding:8px 12px; border-radius:8px; background:rgba(255,214,0,0.08); border-left:3px solid #ffd600;">
+                                ⚠️ <b>No live quote</b> — Add Finnhub key in sidebar for real-time prices
+                            </div>
+                        """, unsafe_allow_html=True)
+                
+                with freshness_cols[2]:
+                    last_bar_time = df.index[-1].strftime("%H:%M:%S") if hasattr(df.index[-1], 'strftime') else str(df.index[-1])
+                    st.markdown(f"""
+                        <div style="padding:8px 12px; border-radius:8px; background:rgba(255,255,255,0.04); border-left:3px solid #888;">
+                            🕒 <b>Last Bar:</b> {last_bar_time}
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown("")
                 # ML Model
                 ml_model = None
                 if enable_ml and ML_AVAILABLE:
@@ -1103,7 +1316,7 @@ with tab_single:
                 # Multi-timeframe
                 mtf_data = None
                 if enable_mtf:
-                    mtf_data = get_mtf_data(symbol_input, ['5m', '15m', '1h'])
+                    mtf_data = get_mtf_data(symbol_input, ['2m', '5m', '15m', '1h'])
                 
                 # Calculate score
                 result = calculate_advanced_score(df, symbol_input, mtf_data, ml_model)
@@ -1185,6 +1398,16 @@ with tab_single:
                 # Stop/Target lines
                 fig.add_hline(y=result["stop"], line_dash="dash", line_color="red", row=1, col=1)
                 fig.add_hline(y=result["target"], line_dash="solid", line_color="green", row=1, col=1)
+                
+                # Real-time price line (if available)
+                if rt_quote:
+                    fig.add_hline(
+                        y=rt_quote["current"], line_dash="dot", line_color="cyan", 
+                        annotation_text=f"⚡ Live: ₺{rt_quote['current']:.2f}", 
+                        annotation_position="top right",
+                        annotation_font_color="cyan",
+                        row=1, col=1
+                    )
                 
                 # RSI & MFI
                 fig.add_trace(go.Scatter(x=tail.index, y=tail["RSI"], name="RSI", line=dict(color="purple")), row=2, col=1)
@@ -1279,16 +1502,16 @@ with tab_scanner:
             try:
                 time.sleep(REQUEST_DELAY)
                 sym = ticker.replace(".IS", "")
-                df, _ = get_data_with_db_cache(sym, "60d", "15m")
+                df, _ = get_data_with_db_cache(sym, data_period, data_interval)
                 
-                if df is None or len(df) < 100:
+                if df is None or len(df) < 50:
                     return None
                 
                 ml_model = None
                 if ML_AVAILABLE:
                     ml_model = train_ml_model(sym, df)
                 
-                mtf_data = get_mtf_data(sym, ['5m', '15m', '1h'])
+                mtf_data = get_mtf_data(sym, ['2m', '5m', '15m', '1h'])
                 result = calculate_advanced_score(df, sym, mtf_data, ml_model)
                 
                 if result and result["score"] >= min_score and result["ml_prob"] >= min_ml_prob:
@@ -1330,6 +1553,12 @@ with tab_scanner:
             Showing **Top {len(top_results)}** opportunities ranked by score + ML probability
             """)
             
+            # Data source indicator
+            if _get_finnhub_key():
+                st.caption("⚡ Prices enhanced with Finnhub real-time quotes")
+            else:
+                st.caption("💡 Tip: Add Finnhub API key in sidebar for real-time prices")
+            
             # Display results
             for idx, res in enumerate(top_results):
                 with st.container():
@@ -1343,6 +1572,14 @@ with tab_scanner:
                             </div>
                         """, unsafe_allow_html=True)
                         st.markdown(f"### {res['symbol']}")
+                        
+                        # Show live price if available
+                        rt = get_realtime_quote(res['symbol'])
+                        if rt:
+                            rt_color = "#00c853" if rt["change"] >= 0 else "#d50000"
+                            rt_sign = "+" if rt["change"] >= 0 else ""
+                            st.caption(f"⚡ ₺{rt['current']:.2f} ({rt_sign}{rt['change_pct']:.1f}%)")
+                        
                         st.caption(f"R/R: {res['rr']:.2f} | ML: {res['ml_prob']*100:.0f}%")
                     
                     with col2:
@@ -1916,4 +2153,4 @@ with tab_analytics:
             """)
 
 st.markdown("---")
-st.caption("🚀 PROP DESK V7.0 | Built with ML, MTF Analysis & Advanced Day Trading Indicators")
+st.caption("🚀 PROP DESK V7.0 | Built with ML, MTF Analysis, Advanced Day Trading Indicators & Real-Time Data (Finnhub + yfinance)")
