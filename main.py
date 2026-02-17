@@ -1,15 +1,19 @@
 """
-PROP DESK V7.0 - ULTIMATE INTRADAY TRADING SYSTEM
+PROP DESK V8.0 - ULTIMATE INTRADAY TRADING SYSTEM
 ==================================================
-Upgrades:
+Upgrades from V7:
 1. Advanced Day Trading Indicators (VWAP, MFI, Stochastic, OBV)
-2. ML Score Enhancement (XGBoost + LSTM price prediction)
+2. ML Score Enhancement (XGBoost with 22 features incl. candlestick patterns)
 3. Multi-Timeframe Analysis (MTF confluence)
 4. SQLite Database Integration (historical data caching)
 5. Performance Optimization (parallel processing, vectorized calculations)
 6. Portfolio Management Layer (Enhanced with stock info table & P/L tracking)
 7. Order Execution Simulation
 8. Enhanced Analytics with per-trade profit/loss visualization
+9. Candlestick Pattern Detection (Hammer, Engulfing, Morning Star, etc.)
+10. Signal Grade System (A+ / A / B / C / D / F)
+11. Real-Time Data (Finnhub + yfinance fast_info)
+12. Watchlist Dashboard with live grades & prices
 
 Optimized for BIST (Borsa Istanbul) intraday trading
 """
@@ -24,7 +28,7 @@ warnings.filterwarnings('ignore')
 # =====================
 st.set_page_config(
     layout="wide",
-    page_title="PROP DESK V7.0 - ML ENHANCED INTRADAY",
+    page_title="PROP DESK V8.0 - ML + CANDLE PATTERNS + SIGNAL GRADES",
     page_icon="🚀"
 )
 
@@ -349,12 +353,15 @@ RETRY_DELAY = 2  # Seconds to wait on rate limit error
 # Set it in Streamlit sidebar or as environment variable FINNHUB_API_KEY
 
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
+FINNHUB_DEFAULT_KEY = "d6a5mc9r01qsjlb9qr60d6a5mc9r01qsjlb9qr6g"
 
 def _get_finnhub_key():
-    """Get Finnhub API key from session state or environment"""
+    """Get Finnhub API key from session state, environment, or default"""
     key = st.session_state.get("finnhub_api_key", "")
     if not key:
         key = os.environ.get("FINNHUB_API_KEY", "")
+    if not key:
+        key = FINNHUB_DEFAULT_KEY
     return key.strip()
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -774,7 +781,7 @@ def mtf_trend_analysis(mtf_data):
 # MACHINE LEARNING SCORE ENHANCEMENT
 # =====================
 def prepare_ml_features(df, lookback=20):
-    """Prepare features for ML model"""
+    """Prepare features for ML model — Enhanced with candle patterns & momentum"""
     if len(df) < lookback + 10:
         return None, None
     
@@ -784,9 +791,35 @@ def prepare_ml_features(df, lookback=20):
     for i in range(lookback, len(df) - 5):
         # Feature engineering
         row = df.iloc[i]
+        prev_row = df.iloc[i-1]
         hist = df.iloc[i-lookback:i]
         
+        # Body and wick ratios (candlestick features)
+        body = abs(row["Close"] - row["Open"])
+        total_range = row["High"] - row["Low"] if row["High"] > row["Low"] else 0.001
+        upper_wick = row["High"] - max(row["Close"], row["Open"])
+        lower_wick = min(row["Close"], row["Open"]) - row["Low"]
+        body_ratio = body / total_range
+        upper_wick_ratio = upper_wick / total_range
+        lower_wick_ratio = lower_wick / total_range
+        is_green = 1 if row["Close"] > row["Open"] else 0
+        
+        # Engulfing detection (simplified)
+        prev_body = abs(prev_row["Close"] - prev_row["Open"])
+        engulfing = 1 if (body > prev_body * 1.1 and is_green == 1 and prev_row["Close"] < prev_row["Open"]) else (
+            -1 if (body > prev_body * 1.1 and is_green == 0 and prev_row["Close"] > prev_row["Open"]) else 0
+        )
+        
+        # Momentum features
+        returns_5 = (row["Close"] - hist["Close"].iloc[-5]) / hist["Close"].iloc[-5] * 100 if len(hist) >= 5 else 0
+        returns_10 = (row["Close"] - hist["Close"].iloc[-10]) / hist["Close"].iloc[-10] * 100 if len(hist) >= 10 else 0
+        
+        # Green candle streak
+        recent = df.iloc[max(0, i-4):i+1]
+        green_streak = sum(1 for j in range(len(recent)) if recent["Close"].iloc[j] > recent["Open"].iloc[j])
+        
         feature_vec = [
+            # Original features
             row["RSI"],
             row["MFI"] if "MFI" in row else 50,
             row["STOCH_K"],
@@ -800,6 +833,18 @@ def prepare_ml_features(df, lookback=20):
             hist["Close"].pct_change().std(),
             row["CMB_CI"] if "CMB_CI" in row else 0,
             (row["OBV"] - row["OBV_EMA"]) if "OBV" in row else 0,
+            # NEW: Candlestick features
+            body_ratio,
+            upper_wick_ratio,
+            lower_wick_ratio,
+            is_green,
+            engulfing,
+            # NEW: Momentum features
+            returns_5,
+            returns_10,
+            green_streak,
+            # NEW: VWAP distance
+            (row["Close"] - row["VWAP"]) / row["ATR"] if "VWAP" in row and row["ATR"] > 0 else 0,
         ]
         
         features.append(feature_vec)
@@ -850,12 +895,35 @@ def train_ml_model(symbol, df):
     }
 
 def get_ml_probability(df, model_data):
-    """Get ML probability for current setup"""
+    """Get ML probability for current setup — Enhanced features"""
     if model_data is None or df is None or len(df) < 30:
         return 0.5
     
     last_row = df.iloc[-1]
+    prev_row = df.iloc[-2]
     hist = df.iloc[-20:]
+    
+    # Candlestick features
+    body = abs(last_row["Close"] - last_row["Open"])
+    total_range = last_row["High"] - last_row["Low"] if last_row["High"] > last_row["Low"] else 0.001
+    upper_wick = last_row["High"] - max(last_row["Close"], last_row["Open"])
+    lower_wick = min(last_row["Close"], last_row["Open"]) - last_row["Low"]
+    body_ratio = body / total_range
+    upper_wick_ratio = upper_wick / total_range
+    lower_wick_ratio = lower_wick / total_range
+    is_green = 1 if last_row["Close"] > last_row["Open"] else 0
+    
+    prev_body = abs(prev_row["Close"] - prev_row["Open"])
+    engulfing = 1 if (body > prev_body * 1.1 and is_green == 1 and prev_row["Close"] < prev_row["Open"]) else (
+        -1 if (body > prev_body * 1.1 and is_green == 0 and prev_row["Close"] > prev_row["Open"]) else 0
+    )
+    
+    # Momentum
+    returns_5 = (last_row["Close"] - hist["Close"].iloc[-5]) / hist["Close"].iloc[-5] * 100 if len(hist) >= 5 else 0
+    returns_10 = (last_row["Close"] - hist["Close"].iloc[-10]) / hist["Close"].iloc[-10] * 100 if len(hist) >= 10 else 0
+    
+    recent_5 = df.iloc[-5:]
+    green_streak = sum(1 for j in range(len(recent_5)) if recent_5["Close"].iloc[j] > recent_5["Open"].iloc[j])
     
     feature_vec = [[
         last_row["RSI"],
@@ -871,10 +939,188 @@ def get_ml_probability(df, model_data):
         hist["Close"].pct_change().std(),
         last_row["CMB_CI"] if "CMB_CI" in last_row else 0,
         (last_row["OBV"] - last_row["OBV_EMA"]) if "OBV" in last_row else 0,
+        # Candlestick features
+        body_ratio,
+        upper_wick_ratio,
+        lower_wick_ratio,
+        is_green,
+        engulfing,
+        # Momentum features
+        returns_5,
+        returns_10,
+        green_streak,
+        # VWAP distance
+        (last_row["Close"] - last_row["VWAP"]) / last_row["ATR"] if "VWAP" in last_row and last_row["ATR"] > 0 else 0,
     ]]
     
     proba = model_data["model"].predict_proba(feature_vec)[0][1]
     return float(proba)
+
+# =====================
+# CANDLESTICK PATTERN DETECTION
+# =====================
+def detect_candlestick_patterns(df, lookback=5):
+    """
+    Detect common candlestick patterns for day trading.
+    Returns dict with detected patterns and their bullish/bearish signals.
+    """
+    if df is None or len(df) < lookback + 2:
+        return {"patterns": [], "score_adjustment": 0}
+    
+    patterns = []
+    score_adj = 0
+    
+    tail = df.iloc[-(lookback+1):]
+    last = tail.iloc[-1]
+    prev = tail.iloc[-2]
+    
+    body = abs(last["Close"] - last["Open"])
+    upper_wick = last["High"] - max(last["Close"], last["Open"])
+    lower_wick = min(last["Close"], last["Open"]) - last["Low"]
+    total_range = last["High"] - last["Low"]
+    
+    prev_body = abs(prev["Close"] - prev["Open"])
+    is_green = last["Close"] > last["Open"]
+    is_prev_red = prev["Close"] < prev["Open"]
+    is_prev_green = prev["Close"] > prev["Open"]
+    
+    atr = float(last["ATR"]) if "ATR" in last and last["ATR"] > 0 else total_range
+    
+    # === DOJI (indecision → reversal signal) ===
+    if total_range > 0 and body / total_range < 0.1:
+        patterns.append(("🕯️ Doji", "Indecision — potential reversal", 0))
+    
+    # === HAMMER (bullish reversal at bottom) ===
+    if (total_range > 0 and 
+        lower_wick > body * 2 and 
+        upper_wick < body * 0.5 and
+        last["RSI"] < 40):
+        patterns.append(("🔨 Hammer", "Bullish reversal at support", 8))
+        score_adj += 8
+    
+    # === INVERTED HAMMER / SHOOTING STAR ===
+    if (total_range > 0 and 
+        upper_wick > body * 2 and 
+        lower_wick < body * 0.5):
+        if last["RSI"] > 65:
+            patterns.append(("💫 Shooting Star", "Bearish reversal at resistance", -8))
+            score_adj -= 8
+        elif last["RSI"] < 40:
+            patterns.append(("💫 Inverted Hammer", "Potential bullish reversal", 5))
+            score_adj += 5
+    
+    # === BULLISH ENGULFING ===
+    if (is_prev_red and is_green and 
+        last["Open"] <= prev["Close"] and 
+        last["Close"] >= prev["Open"] and
+        body > prev_body * 1.1):
+        patterns.append(("🟢 Bullish Engulfing", "Strong reversal — buyers dominate", 12))
+        score_adj += 12
+    
+    # === BEARISH ENGULFING ===
+    if (is_prev_green and not is_green and 
+        last["Open"] >= prev["Close"] and 
+        last["Close"] <= prev["Open"] and
+        body > prev_body * 1.1):
+        patterns.append(("🔴 Bearish Engulfing", "Reversal — sellers dominate", -12))
+        score_adj -= 12
+    
+    # === MORNING STAR (3-candle bullish reversal) ===
+    if len(tail) >= 3:
+        c3 = tail.iloc[-3]  # First: big red
+        c2 = prev            # Second: small body (star)
+        c1 = last             # Third: big green
+        
+        c3_red = c3["Close"] < c3["Open"]
+        c3_big = abs(c3["Close"] - c3["Open"]) > atr * 0.5
+        c2_small = abs(c2["Close"] - c2["Open"]) < atr * 0.2
+        c1_green = c1["Close"] > c1["Open"]
+        c1_big = abs(c1["Close"] - c1["Open"]) > atr * 0.5
+        
+        if c3_red and c3_big and c2_small and c1_green and c1_big:
+            patterns.append(("⭐ Morning Star", "Strong 3-bar bullish reversal", 15))
+            score_adj += 15
+    
+    # === EVENING STAR (3-candle bearish reversal) ===
+    if len(tail) >= 3:
+        c3 = tail.iloc[-3]
+        c2 = prev
+        c1 = last
+        
+        c3_green = c3["Close"] > c3["Open"]
+        c3_big = abs(c3["Close"] - c3["Open"]) > atr * 0.5
+        c2_small = abs(c2["Close"] - c2["Open"]) < atr * 0.2
+        c1_red = c1["Close"] < c1["Open"]
+        c1_big = abs(c1["Close"] - c1["Open"]) > atr * 0.5
+        
+        if c3_green and c3_big and c2_small and c1_red and c1_big:
+            patterns.append(("🌙 Evening Star", "Strong 3-bar bearish reversal", -15))
+            score_adj -= 15
+    
+    # === THREE WHITE SOLDIERS (strong uptrend confirmation) ===
+    if len(tail) >= 3:
+        last3 = tail.iloc[-3:]
+        all_green = all(last3["Close"].iloc[i] > last3["Open"].iloc[i] for i in range(3))
+        ascending = all(last3["Close"].iloc[i] > last3["Close"].iloc[i-1] for i in range(1, 3))
+        decent_bodies = all(abs(last3["Close"].iloc[i] - last3["Open"].iloc[i]) > atr * 0.3 for i in range(3))
+        
+        if all_green and ascending and decent_bodies:
+            patterns.append(("🎖️ Three White Soldiers", "Strong bullish continuation", 10))
+            score_adj += 10
+    
+    # === MARUBOZU (full body, no wicks — strong conviction) ===
+    if total_range > 0 and body / total_range > 0.85:
+        if is_green:
+            patterns.append(("🟩 Green Marubozu", "Strong bullish conviction (no wicks)", 7))
+            score_adj += 7
+        else:
+            patterns.append(("🟥 Red Marubozu", "Strong bearish conviction", -7))
+            score_adj -= 7
+    
+    return {
+        "patterns": patterns,
+        "score_adjustment": max(-25, min(25, score_adj))  # Cap adjustment
+    }
+
+# =====================
+# SIGNAL GRADE SYSTEM
+# =====================
+def get_signal_grade(score, ml_prob, confluence, candle_patterns):
+    """
+    Convert raw score into a professional signal grade.
+    A+ = Exceptional setup, A = Strong, B = Decent, C = Marginal, D = Weak, F = Avoid
+    """
+    # Bonus for strong candlestick patterns
+    has_strong_pattern = any(abs(p[2]) >= 10 for p in candle_patterns) if candle_patterns else False
+    bullish_patterns = sum(1 for p in candle_patterns if p[2] > 0) if candle_patterns else 0
+    
+    if score >= 85 and ml_prob >= 0.70 and confluence >= 80:
+        grade, label, color, emoji = "A+", "EXCEPTIONAL", "#00e676", "💎"
+    elif score >= 80 and ml_prob >= 0.65:
+        grade, label, color, emoji = "A+", "EXCEPTIONAL", "#00e676", "💎"
+    elif score >= 75 and ml_prob >= 0.60:
+        grade, label, color, emoji = "A", "STRONG BUY", "#00c853", "🟢"
+    elif score >= 70 and ml_prob >= 0.55:
+        grade, label, color, emoji = "B+", "BUY", "#76ff03", "✅"
+    elif score >= 65:
+        grade, label, color, emoji = "B", "LEAN BUY", "#c6ff00", "📈"
+    elif score >= 55:
+        grade, label, color, emoji = "C", "NEUTRAL", "#ffd600", "⚖️"
+    elif score >= 45:
+        grade, label, color, emoji = "D", "WEAK", "#ff9100", "⚠️"
+    else:
+        grade, label, color, emoji = "F", "AVOID", "#d50000", "🚫"
+    
+    # Upgrade if strong bullish candle pattern confirms
+    if has_strong_pattern and bullish_patterns > 0 and grade in ["B", "B+"]:
+        grade, label, color, emoji = "A", "STRONG BUY (Pattern Confirmed)", "#00c853", "🟢"
+    
+    return {
+        "grade": grade,
+        "label": label,
+        "color": color,
+        "emoji": emoji
+    }
 
 # =====================
 # ENHANCED SCORING ALGORITHM
@@ -1043,6 +1289,15 @@ def calculate_advanced_score(df, symbol, mtf_data=None, ml_model=None):
             score -= ml_penalty
             reasons.append(f"🤖 ML Probability: {ml_prob*100:.1f}% (-{ml_penalty} pts)")
     
+    # === CANDLESTICK PATTERN ANALYSIS (±25 points) ===
+    candle_result = detect_candlestick_patterns(df)
+    candle_patterns = candle_result["patterns"]
+    score += candle_result["score_adjustment"]
+    
+    for pattern_name, pattern_desc, pattern_pts in candle_patterns:
+        sign = "+" if pattern_pts >= 0 else ""
+        reasons.append(f"{pattern_name} {pattern_desc} ({sign}{pattern_pts} pts)")
+    
     # === RISK/REWARD SETUP ===
     price = float(last["Close"])
     atr = float(last["ATR"])
@@ -1059,10 +1314,15 @@ def calculate_advanced_score(df, symbol, mtf_data=None, ml_model=None):
     # Final score clamping
     final_score = max(0, min(100, int(score)))
     
+    # Signal grade
+    signal = get_signal_grade(final_score, ml_prob, confluence, candle_patterns)
+    
     return {
         "symbol": symbol,
         "score": final_score,
+        "signal": signal,
         "reasons": reasons,
+        "candle_patterns": candle_patterns,
         "price": price,
         "stop": stop_price,
         "target": target_price,
@@ -1181,6 +1441,35 @@ st.markdown("""
         border: 2px solid #00e5ff; box-shadow: 0 6px 20px rgba(0,229,255,0.2);
     }
     
+    /* Signal Grade Badge */
+    .signal-grade {
+        text-align: center; padding: 12px 20px; border-radius: 16px;
+        font-size: 1.8em; font-weight: 900; letter-spacing: 2px;
+        margin-bottom: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    .signal-label {
+        text-align: center; font-size: 0.85em; font-weight: 600;
+        letter-spacing: 1px; padding: 4px 0; margin-bottom: 12px;
+    }
+    
+    /* Candle pattern cards */
+    .candle-card {
+        padding: 10px 14px; border-radius: 8px; margin: 4px 0;
+        background: rgba(255,255,255,0.04); border-left: 3px solid #00e5ff;
+        font-size: 0.9em;
+    }
+    .candle-card-bull { border-left-color: #00c853; background: rgba(0,200,83,0.06); }
+    .candle-card-bear { border-left-color: #d50000; background: rgba(213,0,0,0.06); }
+    
+    /* Watchlist mini cards */
+    .watchlist-card {
+        background: linear-gradient(135deg, #151a25 0%, #1c2333 100%);
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+        padding: 16px; margin: 6px 0;
+        transition: border-color 0.2s;
+    }
+    .watchlist-card:hover { border-color: #00e5ff; }
+    
     /* Portfolio & Analytics card styling */
     .pnl-card {
         padding: 18px 22px; border-radius: 12px; margin: 6px 0;
@@ -1190,56 +1479,181 @@ st.markdown("""
     .pnl-card-loss { background: rgba(213, 0, 0, 0.08); border-left: 4px solid #d50000; }
     .pnl-card-neutral { background: rgba(255, 214, 0, 0.08); border-left: 4px solid #ffd600; }
     .pnl-card-info { background: rgba(0, 229, 255, 0.08); border-left: 4px solid #00e5ff; }
+    
+    /* Freshness badges */
+    .freshness-badge {
+        display: inline-block; padding: 6px 12px; border-radius: 20px;
+        font-size: 0.8em; font-weight: 600;
+    }
+    
+    /* Scanner result cards - improved */
+    .scanner-card {
+        background: linear-gradient(135deg, #151a25 0%, #1c2333 100%);
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;
+        padding: 20px; margin: 8px 0;
+    }
+    .scanner-card-hot {
+        border: 1px solid rgba(0,200,83,0.3);
+        box-shadow: 0 2px 12px rgba(0,200,83,0.1);
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # =====================
 # MAIN APPLICATION
 # =====================
-st.title("🚀 PROP DESK V7.0 - ML ENHANCED INTRADAY SYSTEM")
-st.caption("Advanced day trading with VWAP, MFI, Multi-Timeframe, ML Score & Real-Time Data")
+st.title("🚀 PROP DESK V8.0 - ML ENHANCED INTRADAY SYSTEM")
+st.caption("Advanced day trading with VWAP, MFI, Multi-Timeframe, ML Score, Candlestick Patterns & Real-Time Data")
 
 # =====================
-# SIDEBAR: DATA PROVIDER SETTINGS
+# HARDCODED DATA SETTINGS (no sidebar clutter)
 # =====================
-with st.sidebar:
-    st.markdown("### ⚡ Data Provider Settings")
-    
-    finnhub_key = st.text_input(
-        "🔑 Finnhub API Key (Free)",
-        value=st.session_state.get("finnhub_api_key", os.environ.get("FINNHUB_API_KEY", "")),
-        type="password",
-        help="Get your FREE API key at https://finnhub.io/register — enables real-time BIST quotes (60 calls/min)"
-    )
-    st.session_state["finnhub_api_key"] = finnhub_key
-    
-    if finnhub_key:
-        st.success("✅ Finnhub active — Real-time quotes enabled")
-    else:
-        st.info("💡 Add a free Finnhub key for real-time BIST data. Without it, data may be 15-120 min delayed.")
-        st.markdown("[🔗 Get Free Key](https://finnhub.io/register)")
-    
-    st.markdown("---")
-    
-    data_interval = st.selectbox(
-        "📊 Chart Interval",
-        options=["2m", "5m", "15m", "1h"],
-        index=2,  # Default: 15m
-        help="2m = Freshest (5 day lookback) | 5m = Fresh (5 day) | 15m = Standard (30 day) | 1h = Extended (60 day)"
-    )
-    
-    interval_period_map = {"2m": "5d", "5m": "5d", "15m": "30d", "1h": "60d"}
-    data_period = interval_period_map[data_interval]
-    
-    st.caption(f"Interval: **{data_interval}** | Lookback: **{data_period}**")
-    st.markdown("---")
+data_interval = "15m"
+data_period = "30d"
 
-tab_single, tab_scanner, tab_portfolio, tab_analytics = st.tabs([
+tab_watchlist, tab_single, tab_scanner, tab_portfolio, tab_analytics = st.tabs([
+    "🔥 Watchlist Dashboard",
     "📊 Single Analysis", 
     "🔍 ML Scanner", 
     "💼 Portfolio Manager",
     "📈 Analytics & Performance"
 ])
+
+# =====================
+# TAB 0: WATCHLIST DASHBOARD (NEW)
+# =====================
+with tab_watchlist:
+    st.markdown("### 🔥 Active Day Trading Dashboard")
+    st.caption("Quick overview of your watchlist — scores, live prices & signal grades at a glance")
+    
+    # Default watchlist (user can customize)
+    default_watchlist = "THYAO, GARAN, AKBNK, ASELS, TCELL, TUPRS, FROTO, SISE, KCHOL, EREGL"
+    
+    wl_input = st.text_input(
+        "📋 Watchlist (comma-separated)", 
+        value=st.session_state.get("watchlist_input", default_watchlist),
+        key="wl_input_field",
+        help="Enter stock codes separated by commas"
+    )
+    st.session_state["watchlist_input"] = wl_input
+    
+    wl_cols = st.columns([1, 1])
+    with wl_cols[0]:
+        wl_enable_ml = st.checkbox("🤖 ML Scores", value=True, key="wl_ml")
+    with wl_cols[1]:
+        wl_auto = st.checkbox("Auto-refresh on load", value=False, key="wl_auto", help="Scan automatically (slower initial load)")
+    
+    if st.button("⚡ Refresh Watchlist", type="primary", key="wl_refresh", use_container_width=True) or wl_auto:
+        watchlist = [s.strip().upper().replace(".IS", "") for s in wl_input.split(",") if s.strip()]
+        
+        if watchlist:
+            progress = st.progress(0)
+            wl_results = []
+            
+            for idx, sym in enumerate(watchlist):
+                progress.progress((idx + 1) / len(watchlist))
+                try:
+                    df, _ = get_data_with_db_cache(sym, data_period, data_interval)
+                    if df is not None and len(df) >= 50:
+                        ml_model = None
+                        if wl_enable_ml and ML_AVAILABLE:
+                            ml_model = train_ml_model(sym, df)
+                        
+                        result = calculate_advanced_score(df, sym, None, ml_model)
+                        if result:
+                            # Get live quote
+                            rt = get_realtime_quote(sym)
+                            result["rt_quote"] = rt
+                            result["df"] = df
+                            wl_results.append(result)
+                except Exception:
+                    pass
+            
+            progress.empty()
+            
+            if wl_results:
+                # Sort by score
+                wl_results.sort(key=lambda x: x["score"], reverse=True)
+                
+                # Summary row
+                avg_score = np.mean([r["score"] for r in wl_results])
+                top_grade = wl_results[0]["signal"]["grade"]
+                bullish = sum(1 for r in wl_results if r["score"] >= 65)
+                bearish = sum(1 for r in wl_results if r["score"] < 45)
+                
+                sum_cols = st.columns(4)
+                sum_cols[0].metric("Avg Score", f"{avg_score:.0f}")
+                sum_cols[1].metric("Top Signal", top_grade)
+                sum_cols[2].metric("Bullish", f"{bullish}/{len(wl_results)}")
+                sum_cols[3].metric("Bearish", f"{bearish}/{len(wl_results)}")
+                
+                st.markdown("---")
+                
+                # Display cards in 2 columns
+                col_left, col_right = st.columns(2)
+                
+                for i, res in enumerate(wl_results):
+                    target_col = col_left if i % 2 == 0 else col_right
+                    sig = res["signal"]
+                    rt = res.get("rt_quote")
+                    
+                    # Price display
+                    if rt:
+                        price_str = f"₺{rt['current']:.2f}"
+                        chg = rt.get("change_pct", 0)
+                        chg_color = "#00c853" if chg >= 0 else "#d50000"
+                        chg_sign = "+" if chg >= 0 else ""
+                        chg_str = f'<span style="color:{chg_color}">{chg_sign}{chg:.2f}%</span>'
+                    else:
+                        price_str = f"₺{res['price']:.2f}"
+                        chg_str = ""
+                    
+                    # Candle patterns summary
+                    candle_str = ""
+                    if res.get("candle_patterns"):
+                        candle_str = " ".join([p[0] for p in res["candle_patterns"][:2]])
+                    
+                    # Mini sparkline data (last 20 closes)
+                    df_spark = res.get("df")
+                    spark_trend = ""
+                    if df_spark is not None and len(df_spark) >= 10:
+                        recent = df_spark["Close"].tail(10).tolist()
+                        if recent[-1] > recent[0]:
+                            spark_trend = "📈"
+                        else:
+                            spark_trend = "📉"
+                    
+                    card_extra = "scanner-card-hot" if sig["grade"] in ["A+", "A"] else ""
+                    
+                    with target_col:
+                        st.markdown(f"""
+                        <div class="scanner-card {card_extra}">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <div>
+                                    <span style="font-size:1.4em; font-weight:800;">{res['symbol']}</span>
+                                    <span style="margin-left:8px; font-size:1.1em;">{price_str}</span>
+                                    {chg_str}
+                                    <span style="margin-left:6px;">{spark_trend}</span>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="background:{sig['color']}22; color:{sig['color']}; padding:4px 14px; border-radius:20px; font-weight:800; font-size:1.1em; border:1px solid {sig['color']}44;">
+                                        {sig['emoji']} {sig['grade']}
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:0.85em; color:#aaa;">
+                                <span>Score: <b style="color:white">{res['score']}</b></span>
+                                <span>RSI: <b style="color:white">{res['rsi']:.0f}</b></span>
+                                <span>ML: <b style="color:white">{res['ml_prob']*100:.0f}%</b></span>
+                                <span>R/R: <b style="color:white">{res['rr']:.1f}</b></span>
+                            </div>
+                            <div style="margin-top:6px; font-size:0.8em; color:#888;">
+                                {sig['label']} {candle_str}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+            else:
+                st.warning("No data returned for watchlist symbols. Check if BIST market is open.")
 
 # =====================
 # TAB 1: SINGLE ANALYSIS
@@ -1292,7 +1706,7 @@ with tab_single:
                     else:
                         st.markdown("""
                             <div style="padding:8px 12px; border-radius:8px; background:rgba(255,214,0,0.08); border-left:3px solid #ffd600;">
-                                ⚠️ <b>No live quote</b> — Add Finnhub key in sidebar for real-time prices
+                                ⚠️ <b>No live quote</b> — Market may be closed
                             </div>
                         """, unsafe_allow_html=True)
                 
@@ -1320,6 +1734,17 @@ with tab_single:
                 
                 # Calculate score
                 result = calculate_advanced_score(df, symbol_input, mtf_data, ml_model)
+                sig = result["signal"]
+                
+                # === SIGNAL GRADE HEADER ===
+                st.markdown(f"""
+                    <div style="text-align:center; margin:10px 0 20px 0;">
+                        <div class="signal-grade" style="background:{sig['color']}18; color:{sig['color']}; border:2px solid {sig['color']}44; display:inline-block;">
+                            {sig['emoji']} {sig['grade']}
+                        </div>
+                        <div class="signal-label" style="color:{sig['color']};">{sig['label']}</div>
+                    </div>
+                """, unsafe_allow_html=True)
                 
                 # Display
                 col_a, col_b, col_c = st.columns([1, 2, 1])
@@ -1343,13 +1768,30 @@ with tab_single:
                         st.metric("🎯 MTF", f"{result['mtf_confluence']:.0f}%")
                 
                 with col_b:
+                    # Candlestick patterns section
+                    if result.get("candle_patterns"):
+                        st.markdown("### 🕯️ Candlestick Patterns")
+                        for pname, pdesc, ppts in result["candle_patterns"]:
+                            card_class = "candle-card-bull" if ppts > 0 else ("candle-card-bear" if ppts < 0 else "candle-card")
+                            sign = "+" if ppts >= 0 else ""
+                            st.markdown(f"""
+                                <div class="candle-card {card_class}">
+                                    <b>{pname}</b> — {pdesc} <span style="float:right; font-weight:700;">{sign}{ppts} pts</span>
+                                </div>
+                            """, unsafe_allow_html=True)
+                        st.markdown("")
+                    
                     st.markdown("### 📝 Analysis Factors")
-                    for reason in result["reasons"][:12]:
+                    # Separate candle pattern reasons from other reasons
+                    non_candle_reasons = [r for r in result["reasons"] if not any(
+                        cp[0] in r for cp in result.get("candle_patterns", [])
+                    )]
+                    for reason in non_candle_reasons[:12]:
                         st.markdown(f"• {reason}")
                     
-                    if len(result["reasons"]) > 12:
+                    if len(non_candle_reasons) > 12:
                         with st.expander("Show more..."):
-                            for reason in result["reasons"][12:]:
+                            for reason in non_candle_reasons[12:]:
                                 st.markdown(f"• {reason}")
                 
                 with col_c:
@@ -1357,9 +1799,9 @@ with tab_single:
                         <div class='trade-plan'>
                             <h3 style='color:#00e5ff'>📌 Trade Plan</h3>
                             <hr>
-                            <p><b>Entry:</b> {result['price']:.2f}</p>
-                            <p><b>Stop:</b> {result['stop']:.2f}</p>
-                            <p><b>Target:</b> {result['target']:.2f}</p>
+                            <p><b>Entry:</b> ₺{result['price']:.2f}</p>
+                            <p><b>Stop:</b> ₺{result['stop']:.2f}</p>
+                            <p><b>Target:</b> ₺{result['target']:.2f}</p>
                             <p><b>R/R:</b> {result['rr']:.2f}</p>
                             <p><b>TP %:</b> {result['tp_pct']:.2f}%</p>
                         </div>
@@ -1553,22 +1995,30 @@ with tab_scanner:
             Showing **Top {len(top_results)}** opportunities ranked by score + ML probability
             """)
             
-            # Data source indicator
-            if _get_finnhub_key():
-                st.caption("⚡ Prices enhanced with Finnhub real-time quotes")
-            else:
-                st.caption("💡 Tip: Add Finnhub API key in sidebar for real-time prices")
+            st.caption("⚡ Real-time prices via Finnhub")
             
-            # Display results
+            # Display results with signal grades
             for idx, res in enumerate(top_results):
+                sig = res.get("signal", {"grade": "?", "label": "", "color": "#888", "emoji": ""})
+                card_extra = "scanner-card-hot" if sig["grade"] in ["A+", "A"] else ""
+                
                 with st.container():
                     col1, col2, col3 = st.columns([1, 2, 2])
                     
                     with col1:
+                        # Signal grade badge
+                        st.markdown(f"""
+                            <div style="text-align:center; margin-bottom:8px;">
+                                <div style="background:{sig['color']}18; color:{sig['color']}; padding:8px 16px; border-radius:14px; font-weight:900; font-size:1.6em; border:2px solid {sig['color']}44; display:inline-block;">
+                                    {sig['emoji']} {sig['grade']}
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        
                         bg = "score-high" if res["score"] >= 80 else ("score-mid" if res["score"] >= 70 else "score-low")
                         st.markdown(f"""
-                            <div class='score-box {bg}' style='font-size:1.8em'>
-                                #{idx+1}<br>{res['score']}
+                            <div class='score-box {bg}' style='font-size:1.5em'>
+                                #{idx+1} — {res['score']}
                             </div>
                         """, unsafe_allow_html=True)
                         st.markdown(f"### {res['symbol']}")
@@ -1583,15 +2033,25 @@ with tab_scanner:
                         st.caption(f"R/R: {res['rr']:.2f} | ML: {res['ml_prob']*100:.0f}%")
                     
                     with col2:
+                        # Show candle patterns first if any
+                        candle_pats = res.get("candle_patterns", [])
+                        if candle_pats:
+                            st.markdown("**🕯️ Patterns:**")
+                            for pname, pdesc, ppts in candle_pats[:3]:
+                                st.caption(f"{pname} {pdesc}")
+                        
                         st.markdown("**🎯 Key Factors:**")
-                        for r in res["reasons"][:6]:
+                        non_candle = [r for r in res["reasons"] if not any(
+                            cp[0] in r for cp in candle_pats
+                        )]
+                        for r in non_candle[:5]:
                             st.caption(f"• {r}")
                     
                     with col3:
-                        st.markdown("**💹 Trade Setup:**")
-                        st.write(f"Entry: **{res['price']:.2f}**")
-                        st.write(f"Stop: **{res['stop']:.2f}**")
-                        st.write(f"Target: **{res['target']:.2f}** (TP: {res['tp_pct']:.1f}%)")
+                        st.markdown(f"**💹 Trade Setup — {sig['label']}**")
+                        st.write(f"Entry: **₺{res['price']:.2f}**")
+                        st.write(f"Stop: **₺{res['stop']:.2f}**")
+                        st.write(f"Target: **₺{res['target']:.2f}** (TP: {res['tp_pct']:.1f}%)")
                         st.write(f"MTF Confluence: **{res['mtf_confluence']:.0f}%**")
                     
                     st.markdown("---")
@@ -2153,4 +2613,4 @@ with tab_analytics:
             """)
 
 st.markdown("---")
-st.caption("🚀 PROP DESK V7.0 | Built with ML, MTF Analysis, Advanced Day Trading Indicators & Real-Time Data (Finnhub + yfinance)")
+st.caption("🚀 PROP DESK V8.0 | ML + Candlestick Patterns + Signal Grades + Real-Time Data (Finnhub + yfinance)")
