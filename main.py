@@ -477,6 +477,110 @@ def format_data_age(df):
         return "Unknown", "⚪", "#888888"
 
 # =====================
+# FINNHUB CANDLE DATA (OHLCV bars - the real fix for stale charts)
+# =====================
+@st.cache_data(ttl=90, show_spinner=False)
+def get_finnhub_candles(symbol, resolution="15", hours_back=6):
+    """
+    Fetch OHLCV candle bars from Finnhub to bridge the yfinance data gap.
+    
+    This is the KEY FIX: yfinance returns BIST data 1-3 hours late.
+    Finnhub /stock/candles returns fresher intraday bars with actual
+    Open/High/Low/Close/Volume — so indicators can be recalculated
+    on up-to-date data.
+    
+    resolution: '1', '5', '15', '30', '60', 'D'
+    """
+    api_key = _get_finnhub_key()
+    if not api_key:
+        return None
+    
+    clean_sym = symbol.upper().replace(".IS", "")
+    finnhub_symbol = f"IS:{clean_sym}"
+    
+    now_ts = int(datetime.now().timestamp())
+    from_ts = now_ts - (hours_back * 3600)
+    
+    try:
+        resp = requests.get(
+            f"{FINNHUB_BASE_URL}/stock/candles",
+            params={
+                "symbol": finnhub_symbol,
+                "resolution": resolution,
+                "from": from_ts,
+                "to": now_ts,
+                "token": api_key
+            },
+            timeout=8
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            
+            if data and data.get("s") == "ok" and data.get("c"):
+                df_finnhub = pd.DataFrame({
+                    "Open": data["o"],
+                    "High": data["h"],
+                    "Low": data["l"],
+                    "Close": data["c"],
+                    "Volume": data["v"],
+                }, index=pd.to_datetime(data["t"], unit="s"))
+                
+                df_finnhub.index.name = "Datetime"
+                
+                # Remove any rows with zero/null prices
+                df_finnhub = df_finnhub[df_finnhub["Close"] > 0]
+                
+                if not df_finnhub.empty:
+                    return df_finnhub
+    except Exception:
+        pass
+    
+    return None
+
+def merge_yf_and_finnhub(df_yf, df_finnhub):
+    """
+    Merge yfinance historical data with Finnhub recent candles.
+    Finnhub data takes priority for overlapping timestamps (it's fresher).
+    This ensures charts and indicators reflect the most recent bars.
+    """
+    if df_finnhub is None or df_finnhub.empty:
+        return df_yf
+    
+    if df_yf is None or df_yf.empty:
+        return df_finnhub
+    
+    try:
+        # Align timezone awareness
+        if hasattr(df_yf.index, 'tz') and df_yf.index.tz is not None:
+            if df_finnhub.index.tz is None:
+                df_finnhub.index = df_finnhub.index.tz_localize(df_yf.index.tz)
+            else:
+                df_finnhub.index = df_finnhub.index.tz_convert(df_yf.index.tz)
+        else:
+            if df_finnhub.index.tz is not None:
+                df_finnhub.index = df_finnhub.index.tz_localize(None)
+        
+        # Only keep yfinance data that's OLDER than the earliest Finnhub bar
+        # (to avoid duplicates) plus some overlap for safety
+        earliest_finnhub = df_finnhub.index.min()
+        df_yf_old = df_yf[df_yf.index < earliest_finnhub]
+        
+        # Ensure same columns
+        common_cols = ["Open", "High", "Low", "Close", "Volume"]
+        df_yf_old = df_yf_old[[c for c in common_cols if c in df_yf_old.columns]]
+        df_finnhub_clean = df_finnhub[[c for c in common_cols if c in df_finnhub.columns]]
+        
+        # Concat: old yfinance + fresh Finnhub
+        merged = pd.concat([df_yf_old, df_finnhub_clean])
+        merged = merged.sort_index()
+        merged = merged[~merged.index.duplicated(keep='last')]  # Finnhub wins on dupes
+        
+        return merged
+    except Exception:
+        # If merge fails, return original yfinance data
+        return df_yf
+
+# =====================
 # OPTIMIZED INDICATOR CALCULATIONS
 # =====================
 def _ema_vectorized(series, length):
@@ -578,48 +682,24 @@ def _adx_vectorized(high, low, close, length=14):
     return adx, plus_di, minus_di
 
 # =====================
-# ADVANCED DATA FETCHING WITH CACHING
+# ADVANCED DATA FETCHING WITH CACHING + FINNHUB CANDLE MERGE
 # =====================
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=90, show_spinner=False)
 def get_data_with_db_cache(symbol, period, interval):
-    """Fetch data with database caching (optional - falls back to direct fetch).
+    """Fetch data from yfinance + merge Finnhub candles for fresh chart data.
     
-    TTL reduced to 120s (2 min) for fresher data. Combined with real-time quote
-    overlay from Finnhub/yfinance fast_info for latest price updates.
+    KEY FIX: yfinance returns BIST data 1-3 hours late. After fetching,
+    we check data age. If stale (>20 min), we fetch recent OHLCV candles 
+    from Finnhub /stock/candles and merge them so the chart, volume, RSI, 
+    MFI — ALL indicators — reflect the latest available bars.
     """
     symbol = symbol.upper().strip()
     if len(symbol) <= 5 and not symbol.endswith(".IS"):
         symbol += ".IS"
     
-    # Try database first (only if available)
-    if DB_AVAILABLE:
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            query = """
-                SELECT * FROM price_data 
-                WHERE symbol = ? AND interval = ?
-                ORDER BY timestamp DESC
-                LIMIT 1000
-            """
-            
-            df_cached = pd.read_sql_query(query, conn, params=(symbol, interval))
-            if not df_cached.empty:
-                df_cached['timestamp'] = pd.to_datetime(df_cached['timestamp'])
-                df_cached.set_index('timestamp', inplace=True)
-                
-                # Check if cache is fresh (< 2 min old for near-realtime)
-                if len(df_cached) > 0:
-                    latest_time = df_cached.index[-1]
-                    if datetime.now() - latest_time < timedelta(minutes=2):
-                        conn.close()
-                        return calculate_indicators(df_cached), symbol
-            
-            conn.close()
-        except Exception:
-            pass
-    
     # Fetch from yfinance with retry logic
     max_retries = 3
+    df = None
     
     for attempt in range(max_retries):
         try:
@@ -643,6 +723,32 @@ def get_data_with_db_cache(symbol, period, interval):
         df.columns = df.columns.get_level_values(0)
     
     df.columns = [c.title() for c in df.columns]
+    
+    # === FINNHUB CANDLE MERGE — fixes stale chart/volume/indicators ===
+    try:
+        last_ts = df.index[-1]
+        if hasattr(last_ts, 'tz') and last_ts.tz is not None:
+            now = datetime.now(last_ts.tz)
+        else:
+            now = datetime.now()
+        
+        data_age_minutes = (now - last_ts).total_seconds() / 60
+        
+        # If data is more than 20 minutes old, bridge the gap with Finnhub
+        if data_age_minutes > 20:
+            interval_to_resolution = {
+                "2m": "5", "5m": "5", "15m": "15", "30m": "30", "1h": "60",
+            }
+            resolution = interval_to_resolution.get(interval, "15")
+            hours_back = max(4, int(data_age_minutes / 60) + 2)
+            hours_back = min(hours_back, 48)
+            
+            df_finnhub = get_finnhub_candles(symbol, resolution, hours_back)
+            
+            if df_finnhub is not None and not df_finnhub.empty:
+                df = merge_yf_and_finnhub(df, df_finnhub)
+    except Exception:
+        pass  # If merge fails, continue with yfinance data only
     
     # Save to database (only if available)
     if DB_AVAILABLE:
