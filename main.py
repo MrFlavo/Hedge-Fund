@@ -1785,90 +1785,352 @@ def match_closed_trades(trades):
 # =====================
 st.markdown("""
 <style>
-    .stApp { background-color: #0e1117; color: #fafafa; }
+    /* ========================================
+       PROP DESK V9.0 — CYBERPUNK TERMINAL THEME
+       Bloomberg meets Tron. Dark glass. Neon pulse.
+       ======================================== */
+    
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+    
+    /* === GLOBAL === */
+    .stApp {
+        background: #06080d;
+        color: #e0e6ed;
+        font-family: 'Outfit', sans-serif;
+    }
+    
+    /* Noise texture overlay */
+    .stApp::before {
+        content: '';
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: 
+            radial-gradient(ellipse at 20% 50%, rgba(0,229,255,0.03) 0%, transparent 50%),
+            radial-gradient(ellipse at 80% 20%, rgba(110,0,255,0.03) 0%, transparent 50%),
+            radial-gradient(ellipse at 50% 80%, rgba(0,255,136,0.02) 0%, transparent 50%);
+        pointer-events: none; z-index: 0;
+    }
+    
+    /* === SCROLLBAR === */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0a0d14; }
+    ::-webkit-scrollbar-thumb { background: #1a2332; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #00e5ff33; }
+    
+    /* === HEADERS === */
+    h1, h2, h3, h4, h5 {
+        font-family: 'Outfit', sans-serif !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.02em;
+    }
+    
+    /* === SIDEBAR === */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #080b12 0%, #0c1018 50%, #080b12 100%) !important;
+        border-right: 1px solid rgba(0,229,255,0.08);
+    }
+    section[data-testid="stSidebar"] .stMarkdown {
+        font-family: 'JetBrains Mono', monospace;
+    }
+    
+    /* === TAB BAR === */
+    .stTabs [data-baseweb="tab-list"] {
+        background: rgba(10,15,25,0.8);
+        border: 1px solid rgba(0,229,255,0.1);
+        border-radius: 14px;
+        padding: 4px;
+        gap: 4px;
+        backdrop-filter: blur(20px);
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 10px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.78em;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        padding: 8px 16px;
+        color: #7a8a9e;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, rgba(0,229,255,0.12) 0%, rgba(110,0,255,0.08) 100%) !important;
+        color: #00e5ff !important;
+        border: 1px solid rgba(0,229,255,0.2);
+        box-shadow: 0 0 20px rgba(0,229,255,0.08), inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+    .stTabs [data-baseweb="tab-highlight"] { display: none; }
+    .stTabs [data-baseweb="tab-border"] { display: none; }
+    
+    /* === BUTTONS === */
+    .stButton > button {
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        border: 1px solid rgba(0,229,255,0.2);
+        background: linear-gradient(135deg, rgba(0,229,255,0.08) 0%, rgba(0,229,255,0.02) 100%);
+        color: #00e5ff;
+        border-radius: 10px;
+        transition: all 0.3s ease;
+        text-transform: uppercase;
+        font-size: 0.8em;
+    }
+    .stButton > button:hover {
+        border-color: #00e5ff;
+        box-shadow: 0 0 25px rgba(0,229,255,0.15), 0 0 50px rgba(0,229,255,0.05);
+        background: linear-gradient(135deg, rgba(0,229,255,0.15) 0%, rgba(0,229,255,0.05) 100%);
+        transform: translateY(-1px);
+    }
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #00e5ff 0%, #00b8d4 100%);
+        color: #06080d;
+        border: none;
+        font-weight: 800;
+    }
+    .stButton > button[kind="primary"]:hover {
+        box-shadow: 0 0 30px rgba(0,229,255,0.3), 0 4px 20px rgba(0,0,0,0.3);
+    }
+    
+    /* === INPUTS === */
+    .stTextInput > div > div > input,
+    .stNumberInput > div > div > input,
+    .stSelectbox > div > div,
+    .stTextArea > div > div > textarea {
+        background: rgba(10,15,25,0.6) !important;
+        border: 1px solid rgba(0,229,255,0.1) !important;
+        border-radius: 10px !important;
+        color: #e0e6ed !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 0.85em !important;
+        backdrop-filter: blur(10px);
+    }
+    .stTextInput > div > div > input:focus,
+    .stTextArea > div > div > textarea:focus {
+        border-color: rgba(0,229,255,0.4) !important;
+        box-shadow: 0 0 15px rgba(0,229,255,0.08) !important;
+    }
+    
+    /* === METRICS === */
+    [data-testid="stMetric"] {
+        background: linear-gradient(145deg, rgba(12,18,30,0.8) 0%, rgba(15,22,38,0.6) 100%);
+        border: 1px solid rgba(0,229,255,0.06);
+        border-radius: 12px;
+        padding: 16px 18px;
+        backdrop-filter: blur(15px);
+    }
+    [data-testid="stMetricLabel"] {
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 0.72em !important;
+        color: #5a6a7e !important;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+    [data-testid="stMetricValue"] {
+        font-family: 'Outfit', sans-serif !important;
+        font-weight: 800 !important;
+        color: #ffffff !important;
+    }
+    
+    /* === SCORE BOX === */
     .score-box {
-        font-size: 2.5em; font-weight: bold; text-align: center;
-        padding: 15px; border-radius: 12px; margin-bottom: 15px;
-        color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        font-family: 'Outfit', sans-serif;
+        font-size: 2.8em; font-weight: 900; text-align: center;
+        padding: 18px; border-radius: 16px; margin-bottom: 15px;
+        color: white; position: relative; overflow: hidden;
+        letter-spacing: -0.02em;
     }
-    .score-high { background: linear-gradient(135deg, #00c853 0%, #64dd17 100%); }
-    .score-mid { background: linear-gradient(135deg, #ffd600 0%, #ffab00 100%); color: #000; }
-    .score-low { background: linear-gradient(135deg, #d50000 0%, #c62828 100%); }
+    .score-box::before {
+        content: ''; position: absolute; top: -50%; left: -50%;
+        width: 200%; height: 200%;
+        background: conic-gradient(from 0deg, transparent 0%, rgba(255,255,255,0.05) 25%, transparent 50%);
+        animation: score-shimmer 4s linear infinite;
+    }
+    @keyframes score-shimmer {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    .score-high {
+        background: linear-gradient(135deg, #00c853 0%, #00e676 50%, #69f0ae 100%);
+        box-shadow: 0 4px 30px rgba(0,200,83,0.25);
+    }
+    .score-mid {
+        background: linear-gradient(135deg, #ffa000 0%, #ffd600 50%, #ffea00 100%);
+        color: #06080d;
+        box-shadow: 0 4px 30px rgba(255,214,0,0.2);
+    }
+    .score-low {
+        background: linear-gradient(135deg, #c62828 0%, #d50000 50%, #ff1744 100%);
+        box-shadow: 0 4px 30px rgba(213,0,0,0.25);
+    }
     
+    /* === GLASS CARD (base) === */
+    .glass-card {
+        background: linear-gradient(145deg, rgba(12,18,30,0.7) 0%, rgba(18,26,42,0.5) 100%);
+        border: 1px solid rgba(0,229,255,0.06);
+        border-radius: 16px;
+        padding: 20px;
+        backdrop-filter: blur(20px);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .glass-card:hover {
+        border-color: rgba(0,229,255,0.15);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3), 0 0 20px rgba(0,229,255,0.03);
+    }
+    
+    /* === METRIC CARD === */
     .metric-card {
-        background: linear-gradient(135deg, #1e2a38 0%, #2d3e50 100%);
-        padding: 15px; border-radius: 10px; margin: 10px 0;
-        border-left: 4px solid #00e5ff;
+        background: linear-gradient(145deg, rgba(12,18,30,0.8) 0%, rgba(18,26,42,0.5) 100%);
+        padding: 16px 18px; border-radius: 14px; margin: 8px 0;
+        border: 1px solid rgba(0,229,255,0.06);
+        backdrop-filter: blur(15px);
+        border-left: 3px solid #00e5ff;
     }
     
+    /* === TRADE PLAN === */
     .trade-plan {
-        background: #1c1f26; padding: 20px; border-radius: 12px;
-        border: 2px solid #00e5ff; box-shadow: 0 6px 20px rgba(0,229,255,0.2);
+        background: linear-gradient(145deg, rgba(10,15,25,0.9) 0%, rgba(15,22,38,0.7) 100%);
+        padding: 22px; border-radius: 16px;
+        border: 1px solid rgba(0,229,255,0.15);
+        box-shadow: 0 8px 32px rgba(0,229,255,0.05), inset 0 1px 0 rgba(255,255,255,0.03);
+        backdrop-filter: blur(20px);
     }
+    .trade-plan h3 { color: #00e5ff; font-family: 'JetBrains Mono', monospace; }
+    .trade-plan p { font-family: 'JetBrains Mono', monospace; font-size: 0.9em; color: #c0cad8; }
+    .trade-plan b { color: #ffffff; }
     
-    /* Signal Grade Badge */
+    /* === SIGNAL GRADE === */
     .signal-grade {
-        text-align: center; padding: 12px 20px; border-radius: 16px;
-        font-size: 1.8em; font-weight: 900; letter-spacing: 2px;
-        margin-bottom: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        text-align: center; padding: 14px 24px; border-radius: 20px;
+        font-family: 'Outfit', sans-serif;
+        font-size: 2em; font-weight: 900; letter-spacing: 3px;
+        margin-bottom: 10px;
+        position: relative;
     }
     .signal-label {
-        text-align: center; font-size: 0.85em; font-weight: 600;
-        letter-spacing: 1px; padding: 4px 0; margin-bottom: 12px;
+        text-align: center; font-size: 0.78em; font-weight: 600;
+        letter-spacing: 2px; padding: 4px 0; margin-bottom: 14px;
+        font-family: 'JetBrains Mono', monospace;
+        text-transform: uppercase;
     }
     
-    /* Candle pattern cards */
+    /* === CANDLE PATTERN CARDS === */
     .candle-card {
-        padding: 10px 14px; border-radius: 8px; margin: 4px 0;
-        background: rgba(255,255,255,0.04); border-left: 3px solid #00e5ff;
-        font-size: 0.9em;
+        padding: 10px 16px; border-radius: 10px; margin: 5px 0;
+        background: rgba(255,255,255,0.02);
+        border-left: 3px solid rgba(0,229,255,0.3);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.82em;
+        backdrop-filter: blur(10px);
     }
-    .candle-card-bull { border-left-color: #00c853; background: rgba(0,200,83,0.06); }
-    .candle-card-bear { border-left-color: #d50000; background: rgba(213,0,0,0.06); }
+    .candle-card-bull { border-left-color: #00e676; background: rgba(0,230,118,0.04); }
+    .candle-card-bear { border-left-color: #ff1744; background: rgba(255,23,68,0.04); }
     
-    /* Watchlist mini cards */
-    .watchlist-card {
-        background: linear-gradient(135deg, #151a25 0%, #1c2333 100%);
-        border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
-        padding: 16px; margin: 6px 0;
-        transition: border-color 0.2s;
-    }
-    .watchlist-card:hover { border-color: #00e5ff; }
-    
-    /* Portfolio & Analytics card styling */
-    .pnl-card {
-        padding: 18px 22px; border-radius: 12px; margin: 6px 0;
-        border: 1px solid rgba(255,255,255,0.08);
-    }
-    .pnl-card-profit { background: rgba(0, 200, 83, 0.08); border-left: 4px solid #00c853; }
-    .pnl-card-loss { background: rgba(213, 0, 0, 0.08); border-left: 4px solid #d50000; }
-    .pnl-card-neutral { background: rgba(255, 214, 0, 0.08); border-left: 4px solid #ffd600; }
-    .pnl-card-info { background: rgba(0, 229, 255, 0.08); border-left: 4px solid #00e5ff; }
-    
-    /* Freshness badges */
-    .freshness-badge {
-        display: inline-block; padding: 6px 12px; border-radius: 20px;
-        font-size: 0.8em; font-weight: 600;
-    }
-    
-    /* Scanner result cards - improved */
+    /* === SCANNER CARDS === */
     .scanner-card {
-        background: linear-gradient(135deg, #151a25 0%, #1c2333 100%);
-        border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;
+        background: linear-gradient(145deg, rgba(12,18,30,0.7) 0%, rgba(18,26,42,0.5) 100%);
+        border: 1px solid rgba(0,229,255,0.06); border-radius: 16px;
         padding: 20px; margin: 8px 0;
+        backdrop-filter: blur(15px);
+        transition: all 0.3s ease;
+    }
+    .scanner-card:hover {
+        border-color: rgba(0,229,255,0.15);
+        transform: translateY(-2px);
+        box-shadow: 0 12px 40px rgba(0,0,0,0.3);
     }
     .scanner-card-hot {
-        border: 1px solid rgba(0,200,83,0.3);
-        box-shadow: 0 2px 12px rgba(0,200,83,0.1);
+        border: 1px solid rgba(0,230,118,0.2);
+        box-shadow: 0 0 30px rgba(0,230,118,0.05);
     }
+    
+    /* === P&L CARDS === */
+    .pnl-card {
+        padding: 18px 22px; border-radius: 14px; margin: 6px 0;
+        border: 1px solid rgba(255,255,255,0.04);
+        backdrop-filter: blur(15px);
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .pnl-card-profit { background: rgba(0,230,118,0.05); border-left: 3px solid #00e676; }
+    .pnl-card-loss { background: rgba(255,23,68,0.05); border-left: 3px solid #ff1744; }
+    .pnl-card-neutral { background: rgba(255,214,0,0.05); border-left: 3px solid #ffd600; }
+    .pnl-card-info { background: rgba(0,229,255,0.05); border-left: 3px solid #00e5ff; }
+    
+    /* === FRESHNESS BADGE === */
+    .freshness-badge {
+        display: inline-block; padding: 6px 14px; border-radius: 24px;
+        font-size: 0.75em; font-weight: 600;
+        font-family: 'JetBrains Mono', monospace;
+        letter-spacing: 0.03em;
+    }
+    
+    /* === EXPANDER === */
+    .streamlit-expanderHeader {
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 0.85em !important;
+        background: rgba(10,15,25,0.5) !important;
+        border: 1px solid rgba(0,229,255,0.06) !important;
+        border-radius: 10px !important;
+    }
+    
+    /* === DATA FRAME === */
+    .stDataFrame { border-radius: 12px; overflow: hidden; }
+    
+    /* === NEON PULSE ANIMATION (for live elements) === */
+    @keyframes neon-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+    }
+    .neon-live { animation: neon-pulse 2s ease-in-out infinite; }
+    
+    /* === GRID BACKGROUND FOR HEADERS === */
+    .grid-header {
+        position: relative;
+        padding: 24px 0 16px 0;
+    }
+    .grid-header::before {
+        content: '';
+        position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+        background: 
+            linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+        background-size: 40px 40px;
+        border-radius: 16px;
+        pointer-events: none;
+    }
+    
+    /* === DIVIDERS === */
+    hr { border-color: rgba(0,229,255,0.06) !important; }
+    
+    /* === SUCCESS/WARNING/ERROR BOXES === */
+    .stSuccess, .stWarning, .stError, .stInfo {
+        border-radius: 12px !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 0.85em !important;
+    }
+    
+    /* === HIDE STREAMLIT BRANDING === */
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
+    header[data-testid="stHeader"] { background: rgba(6,8,13,0.8); backdrop-filter: blur(20px); }
 </style>
 """, unsafe_allow_html=True)
 
 # =====================
 # MAIN APPLICATION
 # =====================
-st.title("🚀 PROP DESK V9.0 - FULL STACK DAY TRADING")
-st.caption("ML + MACD/BB/Stoch + S/R & Pivots + Candlestick Patterns + Sector RS + Earnings Calendar + Auto-Refresh")
+st.markdown("""
+<div class="grid-header">
+    <div style="text-align:center;">
+        <div style="font-family:'Outfit',sans-serif; font-size:2.4em; font-weight:900; letter-spacing:-0.03em; 
+             background:linear-gradient(135deg, #00e5ff 0%, #00b8d4 30%, #ffffff 60%, #00e5ff 100%);
+             -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;">
+            PROP DESK V9
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:0.7em; color:#3a5068; letter-spacing:0.25em; text-transform:uppercase; margin-top:2px;">
+            ML · MACD · BB · S/R · Pivots · Sector RS · Earnings · Auto-Refresh
+        </div>
+        <div style="width:60px; height:2px; background:linear-gradient(90deg, transparent, #00e5ff, transparent); margin:10px auto 0;"></div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # =====================
 # HARDCODED DATA SETTINGS (no sidebar clutter)
@@ -1879,36 +2141,52 @@ data_period = "30d"
 # =====================
 # AUTO-REFRESH (60 seconds)
 # =====================
-# Streamlit auto-rerun using st.fragment or manual timer
-REFRESH_INTERVAL = 60  # seconds
+REFRESH_INTERVAL = 60
 
-# Sidebar: minimal - just auto-refresh toggle
+# Sidebar: minimal cyberpunk terminal
 with st.sidebar:
-    st.markdown("### ⚙️ Settings")
-    auto_refresh = st.toggle("⏱️ Auto-refresh (60s)", value=False, key="auto_refresh_toggle",
-                              help="Automatically reload data every 60 seconds during market hours")
+    st.markdown("""
+    <div style="text-align:center; padding:16px 0 12px;">
+        <div style="font-family:'Outfit',sans-serif; font-size:1.3em; font-weight:800; letter-spacing:-0.02em;
+             background:linear-gradient(135deg, #00e5ff, #00b8d4);
+             -webkit-background-clip:text; -webkit-text-fill-color:transparent;">
+            PROP DESK
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:0.6em; color:#2a3a4e; letter-spacing:0.2em; margin-top:2px;">
+            TERMINAL v9.0
+        </div>
+        <div style="width:40px; height:1px; background:linear-gradient(90deg, transparent, #00e5ff40, transparent); margin:8px auto;"></div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    auto_refresh = st.toggle("⏱ AUTO-REFRESH", value=False, key="auto_refresh_toggle",
+                              help="Auto-reload every 60 seconds")
     
     if auto_refresh:
-        # Check if market is likely open (BIST: 10:00-18:10 Turkey time, UTC+3)
-        now_hour = datetime.now().hour  # Server time
-        st.caption(f"🔄 Auto-refresh active | Next in ~60s")
-        st.caption(f"Server time: {datetime.now().strftime('%H:%M:%S')}")
+        st.markdown(f"""
+        <div style="font-family:'JetBrains Mono',monospace; font-size:0.68em; color:#00e5ff; 
+             background:rgba(0,229,255,0.04); padding:6px 10px; border-radius:8px; border:1px solid rgba(0,229,255,0.1);">
+            <span class="neon-live">●</span> LIVE — {datetime.now().strftime('%H:%M:%S')}
+        </div>
+        """, unsafe_allow_html=True)
         
-        # Use Streamlit's built-in rerun with a timer
-        import threading
         if "refresh_counter" not in st.session_state:
             st.session_state.refresh_counter = 0
         st.session_state.refresh_counter += 1
-        
-        # Trigger rerun after interval
-        time.sleep(0.1)  # Small delay to prevent instant loop
-        # st.rerun triggers at the script level — we use fragment approach instead
+        time.sleep(0.1)
     
-    st.markdown("---")
-    st.caption("📊 Interval: 15m | Lookback: 30d")
-    st.caption("⚡ Data: Finnhub + yfinance")
+    st.markdown("""
+    <div style="margin-top:16px; padding:12px; background:rgba(10,15,25,0.5); border-radius:10px; border:1px solid rgba(0,229,255,0.04);">
+        <div style="font-family:'JetBrains Mono',monospace; font-size:0.65em; color:#3a5068; line-height:1.8;">
+            <span style="color:#5a6a7e;">INTERVAL</span> <span style="color:#00e5ff;">15m</span><br>
+            <span style="color:#5a6a7e;">LOOKBACK</span> <span style="color:#00e5ff;">30d</span><br>
+            <span style="color:#5a6a7e;">DATA SRC</span> <span style="color:#00e676;">Finnhub + YF</span><br>
+            <span style="color:#5a6a7e;">ML</span> <span style="color:#00e676;">XGBoost 22F</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# Auto-refresh implementation via HTML meta tag
+# Auto-refresh via meta tag
 if auto_refresh:
     st.markdown(
         f'<meta http-equiv="refresh" content="{REFRESH_INTERVAL}">',
@@ -1916,19 +2194,23 @@ if auto_refresh:
     )
 
 tab_watchlist, tab_single, tab_scanner, tab_portfolio, tab_analytics = st.tabs([
-    "🔥 Watchlist Dashboard",
-    "📊 Single Analysis", 
-    "🔍 ML Scanner", 
-    "💼 Portfolio Manager",
-    "📈 Analytics & Performance"
+    "⚡ WATCHLIST",
+    "◉ ANALYSIS", 
+    "⌬ SCANNER", 
+    "▣ PORTFOLIO",
+    "◫ ANALYTICS"
 ])
 
 # =====================
 # TAB 0: WATCHLIST DASHBOARD (NEW)
 # =====================
 with tab_watchlist:
-    st.markdown("### 🔥 Active Day Trading Dashboard")
-    st.caption("Quick overview of your watchlist — scores, live prices & signal grades at a glance")
+    st.markdown("""
+    <div style="margin-bottom:16px;">
+        <span style="font-family:'Outfit',sans-serif; font-size:1.5em; font-weight:800; color:#ffffff;">Active Watchlist</span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:0.7em; color:#3a5068; margin-left:12px; letter-spacing:0.15em;">LIVE GRADES & SIGNALS</span>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Default watchlist (user can customize)
     default_watchlist = "THYAO, GARAN, AKBNK, ASELS, TCELL, TUPRS, FROTO, SISE, KCHOL, EREGL"
@@ -2323,7 +2605,13 @@ with tab_single:
                 
                 fig.update_layout(height=1100, template="plotly_dark", showlegend=True, 
                                   xaxis_rangeslider_visible=False, hovermode='x unified',
-                                  margin=dict(t=30, b=30))
+                                  margin=dict(t=30, b=30),
+                                  paper_bgcolor='rgba(6,8,13,0)',
+                                  plot_bgcolor='rgba(10,15,25,0.8)',
+                                  font=dict(family='JetBrains Mono, monospace', size=10, color='#7a8a9e'),
+                                  legend=dict(bgcolor='rgba(10,15,25,0.7)', bordercolor='rgba(0,229,255,0.1)', borderwidth=1))
+                fig.update_xaxes(gridcolor='rgba(0,229,255,0.04)', zerolinecolor='rgba(0,229,255,0.06)')
+                fig.update_yaxes(gridcolor='rgba(0,229,255,0.04)', zerolinecolor='rgba(0,229,255,0.06)')
                 st.plotly_chart(fig, use_container_width=True)
                 
                 # === SECTOR RELATIVE STRENGTH ===
@@ -3173,5 +3461,14 @@ with tab_analytics:
             The system will automatically match and calculate your profit: **+₺1,510.00** ✅
             """)
 
-st.markdown("---")
-st.caption("🚀 PROP DESK V9.0 | ML + Candlestick Patterns + Signal Grades + S/R & Pivots + MACD/BB/Stoch + Sector RS + Earnings Calendar + Auto-Refresh")
+st.markdown("""
+<div style="text-align:center; margin-top:40px; padding:20px 0;">
+    <div style="width:60px; height:1px; background:linear-gradient(90deg, transparent, #00e5ff20, transparent); margin:0 auto 12px;"></div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:0.6em; color:#2a3a4e; letter-spacing:0.2em; text-transform:uppercase;">
+        PROP DESK V9.0 — ML · MACD · BB · STOCH · S/R · PIVOTS · SECTOR RS · EARNINGS · AUTO-REFRESH
+    </div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:0.55em; color:#1a2a3e; letter-spacing:0.15em; margin-top:4px;">
+        POWERED BY FINNHUB + YFINANCE · XGBOOST 22 FEATURES · BIST OPTIMIZED
+    </div>
+</div>
+""", unsafe_allow_html=True)
