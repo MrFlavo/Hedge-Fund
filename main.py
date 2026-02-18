@@ -708,7 +708,7 @@ RETRY_DELAY = 2  # Seconds to wait on rate limit error
 # Set it in Streamlit sidebar or as environment variable FINNHUB_API_KEY
 
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
-FINNHUB_DEFAULT_KEY = "d6a5mc9r01qsjlb9qr60d6a5mc9r01qsjlb9qr6g"
+FINNHUB_DEFAULT_KEY = "d6b1dipr01qnr27j9prgd6b1dipr01qnr27j9ps0"
 
 def _get_finnhub_key():
     """Get Finnhub API key from session state, environment, or default"""
@@ -1099,7 +1099,7 @@ def get_data_with_db_cache(symbol, period="30d", interval="15m"):
         )
         
         if should_bridge:
-            quote = get_realtime_quote_finnhub(symbol)
+            quote = get_realtime_quote(symbol)  # Tries Finnhub first, then yfinance fallback
             if quote and quote.get("current", 0) > 0:
                 q_price = float(quote["current"])
                 q_high = float(max(quote.get("high", q_price), q_price))
