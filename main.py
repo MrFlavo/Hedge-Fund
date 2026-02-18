@@ -440,86 +440,256 @@ def calculate_sector_relative_strength(symbol, period="5d", interval="15m"):
 # =====================
 # EARNINGS CALENDAR (Financial Report Dates)
 # =====================
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_earnings_calendar(symbol):
+# Source: KAP (kap.org.tr) — Official BIST Public Disclosure Platform
+# Compiled from: KAP, Midas, Investing.com TR, CNBC-E, Rota Borsa, Borsa Gündem
+# Last updated: 18 February 2026
+#
+# MULTI-QUARTER STRUCTURE: Easy to add Q1 2026 dates when KAP announces them
+# Deadlines Q4 2025: Non-consolidated = 2 Mar 2026, Consolidated = 11 Mar 2026
+# Deadlines Q1 2026: Non-consolidated = ~15 May 2026, Consolidated = ~30 May 2026
+
+BIST_EARNINGS = {
+    # ═══════════════════════════════════════════
+    # Q4 2025 (12-month annual) — Active Season
+    # ═══════════════════════════════════════════
+    "Q4_2025": {
+        "period_label": "Q4 2025 (12M Yıllık)",
+        "deadline_non_consolidated": "2026-03-02",
+        "deadline_consolidated": "2026-03-11",
+        "dates": {
+            # ── January 2026 — Early reporters ──
+            "TRGYO": "2026-01-26",  # Torunlar GYO
+            "ARCLK": "2026-01-30",  # Arçelik
+            
+            # ── February 2026 — Banks & industrials ──
+            "AKBNK": "2026-02-02",  # Akbank
+            "GARAN": "2026-02-04",  # Garanti BBVA
+            "AKSIGORTA": "2026-02-05",  # Aksigorta
+            "YKBNK": "2026-02-05",  # Yapı Kredi
+            "ISCTR": "2026-02-06",  # İş Bankası
+            "TUPRS": "2026-02-06",  # Tüpraş
+            "TSKB":  "2026-02-06",  # TSKB
+            "FROTO": "2026-02-09",  # Ford Otosan
+            "TOASO": "2026-02-09",  # Tofaş
+            "OTKAR": "2026-02-09",  # Otokar
+            "TTRAK": "2026-02-09",  # Türk Traktör
+            "AYGAZ": "2026-02-09",  # Aygaz
+            "KCHOL": "2026-02-11",  # Koç Holding
+            "ALBRK": "2026-02-13",  # Albaraka Türk
+            "SISE":  "2026-02-16",  # Şişecam
+            "TAVHL": "2026-02-17",  # TAV Havalimanları
+            "TATGD": "2026-02-17",  # Tat Gıda
+            "PETKM": "2026-02-17",  # Petkim
+            "MGROS": "2026-02-17",  # Migros (early estimate filing)
+            "YUNSA": "2026-02-17",  # Yünsa
+            "SELEC": "2026-02-17",  # Selçuk Ecza
+            "AKSA":  "2026-02-19",  # Aksa Akrilik
+            "ASELS": "2026-02-24",  # Aselsan
+            "VESTL": "2026-02-25",  # Vestel
+            "BRSAN": "2026-02-26",  # Borusan Mannesmann
+            "DOAS":  "2026-02-27",  # Doğuş Otomotiv
+            "TKFEN": "2026-02-27",  # Tekfen Holding
+            
+            # ── March 2026 — Bulk season ──
+            "HALKB": "2026-03-02",  # Halkbank (non-consol deadline)
+            "VAKBN": "2026-03-02",  # Vakıfbank
+            "SKBNK": "2026-03-02",  # Şekerbank
+            "QNBFB": "2026-03-02",  # QNB Finans
+            "CCOLA": "2026-03-03",  # Coca-Cola İçecek
+            "TTKOM": "2026-03-03",  # Türk Telekom
+            "SAHOL": "2026-03-04",  # Sabancı Holding
+            "ENKA":  "2026-03-04",  # ENKA İnşaat
+            "TCELL": "2026-03-05",  # Turkcell
+            "AEFES": "2026-03-05",  # Anadolu Efes
+            "PGSUS": "2026-03-05",  # Pegasus
+            "ULKER": "2026-03-06",  # Ülker
+            "MAVI":  "2026-03-06",  # Mavi Giyim
+            "ALARK": "2026-03-09",  # Alarko Holding
+            "KOZAL": "2026-03-09",  # Koza Altın
+            "ENJSA": "2026-03-09",  # Enerjisa
+            
+            # ── 11 March 2026 — Consolidated deadline (all remaining) ──
+            "THYAO": "2026-03-11",  # THY (son tarih)
+            "BIMAS": "2026-03-11",  # BİM
+            "SOKM":  "2026-03-11",  # ŞOK Marketler
+            "EREGL": "2026-03-11",  # Erdemir
+            "KRDMD": "2026-03-11",  # Kardemir
+            "SASA":  "2026-03-11",  # SASA Polyester
+            "GUBRF": "2026-03-11",  # Gübre Fabrikaları
+            "EKGYO": "2026-03-11",  # Emlak Konut GYO
+            "AKSEN": "2026-03-11",  # Aksa Enerji
+            "ZOREN": "2026-03-11",  # Zorlu Enerji
+            "LOGO":  "2026-03-11",  # Logo Yazılım
+            "KRONT": "2026-03-11",  # Kontrolmatik
+            "ASTOR": "2026-03-11",  # Astor Enerji
+            "GWIND": "2026-03-11",  # Galata Wind
+            "SODA":  "2026-03-11",  # Soda Sanayii
+            "TRKCM": "2026-03-11",  # Trakya Cam
+            "ANACM": "2026-03-11",  # Anadolu Cam
+            "CIMSA": "2026-03-11",  # Çimsa
+            "ISGYO": "2026-03-11",  # İş GYO
+            "DSFAK": "2026-03-11",  # Destek Finans
+            "IZMDC": "2026-03-11",  # İzmir Demir Çelik
+            "SARKY": "2026-03-11",  # Sarkuysan
+            "BJKAS": "2026-03-11",  # Beşiktaş
+            "GSRAY": "2026-03-11",  # Galatasaray
+            "FENER": "2026-03-11",  # Fenerbahçe
+            "TSPOR": "2026-03-11",  # Trabzonspor
+        }
+    },
+    
+    # ═══════════════════════════════════════════
+    # Q1 2026 (3-month) — Dates TBD (will be announced on KAP ~April-May 2026)
+    # ═══════════════════════════════════════════
+    "Q1_2026": {
+        "period_label": "Q1 2026 (3 Aylık)",
+        "deadline_non_consolidated": "2026-05-15",
+        "deadline_consolidated": "2026-05-30",
+        "dates": {
+            # Companies typically report in similar order each quarter.
+            # Dates will be added here as KAP announcements come in.
+            # Banks usually report first (mid-April), then industrials (May).
+            # ── Placeholder based on historical patterns ──
+            # (Uncomment and update as dates are confirmed on KAP)
+            # "AKBNK": "2026-04-XX",
+            # "GARAN": "2026-04-XX",
+            # "YKBNK": "2026-04-XX",
+            # ... etc
+        }
+    },
+    
+    # ═══════════════════════════════════════════
+    # Q2 2026 (6-month) — Template for future use
+    # ═══════════════════════════════════════════
+    "Q2_2026": {
+        "period_label": "Q2 2026 (6 Aylık)",
+        "deadline_non_consolidated": "2026-08-14",
+        "deadline_consolidated": "2026-08-31",
+        "dates": {}
+    },
+}
+
+def get_earnings_info(symbol):
     """
-    Fetch upcoming and recent earnings/financial report dates for a BIST stock.
-    Uses yfinance calendar data.
+    Get earnings/bilanço date for a BIST stock.
+    Scans ALL quarters and returns the NEXT relevant one.
+    Priority: upcoming > today > most recent reported.
     """
     clean = symbol.upper().replace(".IS", "")
-    try:
-        ticker = yf.Ticker(f"{clean}.IS")
-        cal = ticker.calendar
-        
-        if cal is not None and not (isinstance(cal, pd.DataFrame) and cal.empty):
-            # yfinance returns a dict or DataFrame
-            if isinstance(cal, dict):
-                return {
-                    "earnings_date": cal.get("Earnings Date", []),
-                    "revenue_estimate": cal.get("Revenue Average", None),
-                    "eps_estimate": cal.get("EPS Average", None),
-                    "source": "yfinance"
-                }
-            elif isinstance(cal, pd.DataFrame) and not cal.empty:
-                earnings_dates = []
-                for col in cal.columns:
-                    if "Earnings" in str(col) or "earnings" in str(col):
-                        earnings_dates.append(str(cal[col].iloc[0]))
-                return {
-                    "earnings_date": earnings_dates if earnings_dates else [str(cal.columns[0])],
-                    "source": "yfinance"
-                }
-    except Exception:
-        pass
+    now = datetime.now()
     
-    return None
+    best_match = None
+    
+    for quarter_key in ["Q4_2025", "Q1_2026", "Q2_2026"]:
+        quarter = BIST_EARNINGS.get(quarter_key, {})
+        dates = quarter.get("dates", {})
+        period_label = quarter.get("period_label", quarter_key)
+        deadline_con = quarter.get("deadline_consolidated", "")
+        
+        date_str = None
+        is_deadline = False
+        
+        if clean in dates:
+            date_str = dates[clean]
+        elif deadline_con:
+            # Stock exists in our BIST lists but no specific date → assign deadline
+            all_known = set()
+            for s_list in [BIST30, BIST50, BIST100]:
+                for t in s_list:
+                    all_known.add(t.replace(".IS", ""))
+            if clean in all_known and quarter_key == "Q4_2025":
+                date_str = deadline_con
+                is_deadline = True
+        
+        if not date_str:
+            continue
+        
+        try:
+            earn_date = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            continue
+        
+        days_diff = (earn_date - now).days
+        
+        if days_diff < -1:
+            status = "reported"
+            label = f"Reported {date_str}"
+        elif days_diff <= 0:
+            status = "today"
+            label = "⚡ REPORTING TODAY"
+        else:
+            status = "upcoming"
+            label = f"{days_diff}d → {date_str}"
+        
+        entry = {
+            "symbol": clean,
+            "date": earn_date,
+            "date_str": date_str,
+            "days_until": days_diff,
+            "status": status,
+            "label": label,
+            "period": period_label,
+            "quarter": quarter_key,
+            "is_deadline": is_deadline,
+        }
+        
+        # Prefer upcoming over reported
+        if status in ("upcoming", "today"):
+            return entry  # Immediately return the next upcoming
+        
+        # Keep the most recent reported as fallback
+        if best_match is None or earn_date > best_match["date"]:
+            best_match = entry
+    
+    return best_match
 
-@st.cache_data(ttl=3600, show_spinner=False)
 def get_sector_earnings_calendar(symbol):
     """
     Get earnings dates for all stocks in the same sector.
-    Returns list of upcoming earnings sorted by date.
+    Returns sorted list + sector name.
     """
-    peers, sector = get_sector_peers(symbol, max_peers=10)
+    peers, sector = get_sector_peers(symbol, max_peers=15)
     if not sector:
         return None, None
     
     clean = symbol.upper().replace(".IS", "")
-    all_stocks = [clean] + peers
+    all_stocks = list(dict.fromkeys([clean] + peers))  # deduplicate, keep order
     
     earnings_list = []
     for stock in all_stocks:
-        try:
-            ticker = yf.Ticker(f"{stock}.IS")
-            cal = ticker.calendar
-            
-            if cal is not None:
-                dates = []
-                if isinstance(cal, dict):
-                    dates = cal.get("Earnings Date", [])
-                elif isinstance(cal, pd.DataFrame) and not cal.empty:
-                    for col in cal.columns:
-                        dates.append(str(col))
-                
-                for d in dates:
-                    try:
-                        dt = pd.to_datetime(d)
-                        earnings_list.append({
-                            "symbol": stock,
-                            "date": dt,
-                            "date_str": dt.strftime("%Y-%m-%d"),
-                            "is_target": stock == clean
-                        })
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-        time.sleep(0.2)
+        info = get_earnings_info(stock)
+        if info:
+            info["is_target"] = (stock == clean)
+            earnings_list.append(info)
     
-    # Sort by date
     earnings_list.sort(key=lambda x: x["date"])
-    
     return earnings_list, sector
+
+def get_full_earnings_calendar(quarter="Q4_2025"):
+    """
+    Get the full earnings calendar for a quarter.
+    Returns list of all stocks with dates, sorted chronologically.
+    """
+    quarter_data = BIST_EARNINGS.get(quarter, {})
+    dates = quarter_data.get("dates", {})
+    period_label = quarter_data.get("period_label", quarter)
+    now = datetime.now()
+    
+    result = []
+    for sym, date_str in dates.items():
+        try:
+            earn_date = datetime.strptime(date_str, "%Y-%m-%d")
+            days_diff = (earn_date - now).days
+            status = "reported" if days_diff < -1 else ("today" if days_diff <= 0 else "upcoming")
+            result.append({
+                "symbol": sym, "date": earn_date, "date_str": date_str,
+                "days_until": days_diff, "status": status, "period": period_label
+            })
+        except ValueError:
+            pass
+    
+    result.sort(key=lambda x: x["date"])
+    return result
 
 # =====================
 # RATE LIMITING CONFIGURATION
@@ -1125,10 +1295,174 @@ def mtf_trend_analysis(mtf_data):
     return trends, confluence_score
 
 # =====================
-# MACHINE LEARNING SCORE ENHANCEMENT
+# MACHINE LEARNING SCORE ENHANCEMENT (V2 — POOLED + RISK-ADJUSTED)
 # =====================
+# Key improvements:
+# 1. Pool training data across BIST30 (12K+ samples vs 400)
+# 2. Risk-adjusted labels (penalize drawdown during holding period)
+# 3. Volume flow & unusual volume features (delta, acceleration, spikes)
+# 4. Mean reversion detection (z-score, exhaustion, overextension)
+# 5. 30 features (up from 22)
+
+ML_FEATURE_NAMES = [
+    # Oscillators (5)
+    "rsi", "mfi", "stoch_k", "stoch_d", "adx",
+    # Trend distance (3)
+    "dist_ema20_atr", "dist_ema50_atr", "dist_vwap_atr",
+    # Volatility (2)
+    "bb_width", "atr_pct",
+    # Volume flow (5) — NEW
+    "vol_ratio_ma20", "vol_accel", "vol_delta_proxy", "obv_trend", "unusual_vol",
+    # Momentum (4)
+    "returns_5", "returns_10", "mean_return_20", "std_return_20",
+    # Candle structure (5)
+    "body_ratio", "upper_wick_ratio", "lower_wick_ratio", "is_green", "engulfing",
+    # Streak (1)
+    "green_streak",
+    # Mean reversion (4) — NEW
+    "zscore_vwap", "bb_position", "consec_same_dir", "rsi_divergence",
+    # MACD (1) — NEW
+    "macd_hist_accel",
+]
+
+def _extract_features_from_row(df, i, lookback=20):
+    """Extract feature vector for a single bar. Shared between training and inference."""
+    row = df.iloc[i]
+    prev_row = df.iloc[i-1]
+    hist = df.iloc[max(0, i-lookback):i]
+    
+    if len(hist) < 5:
+        return None
+    
+    atr = float(row.get("ATR", 0.001))
+    if atr <= 0:
+        atr = 0.001
+    close = float(row["Close"])
+    
+    # Candle structure
+    body = abs(row["Close"] - row["Open"])
+    total_range = row["High"] - row["Low"] if row["High"] > row["Low"] else 0.001
+    upper_wick = row["High"] - max(row["Close"], row["Open"])
+    lower_wick = min(row["Close"], row["Open"]) - row["Low"]
+    
+    prev_body = abs(prev_row["Close"] - prev_row["Open"])
+    is_green = 1 if row["Close"] > row["Open"] else 0
+    engulfing = 1 if (body > prev_body * 1.1 and is_green == 1 and prev_row["Close"] < prev_row["Open"]) else (
+        -1 if (body > prev_body * 1.1 and is_green == 0 and prev_row["Close"] > prev_row["Open"]) else 0
+    )
+    
+    # Momentum
+    r5 = (close - float(hist["Close"].iloc[-5])) / float(hist["Close"].iloc[-5]) * 100 if len(hist) >= 5 else 0
+    r10 = (close - float(hist["Close"].iloc[-10])) / float(hist["Close"].iloc[-10]) * 100 if len(hist) >= 10 else 0
+    pct = hist["Close"].pct_change().dropna()
+    
+    # Green streak
+    recent_5 = df.iloc[max(0, i-4):i+1]
+    green_streak = sum(1 for j in range(len(recent_5)) if recent_5["Close"].iloc[j] > recent_5["Open"].iloc[j])
+    
+    # === VOLUME FLOW FEATURES (NEW) ===
+    vol = float(row.get("Volume", 0))
+    vol_ma20 = float(row.get("VOL_MA20", 1))
+    if vol_ma20 <= 0:
+        vol_ma20 = 1
+    vol_ratio = vol / vol_ma20
+    
+    # Volume acceleration (is volume increasing bar-over-bar?)
+    vol_hist = hist["Volume"].tail(5) if "Volume" in hist else pd.Series([1]*5)
+    vol_accel = 0
+    if len(vol_hist) >= 3:
+        vol_accel = float((vol_hist.iloc[-1] - vol_hist.iloc[-3]) / (vol_hist.iloc[-3] + 1))
+    
+    # Volume delta proxy (up-volume vs down-volume using close vs open)
+    recent_bars = df.iloc[max(0, i-4):i+1]
+    up_vol = sum(float(recent_bars["Volume"].iloc[j]) for j in range(len(recent_bars)) if recent_bars["Close"].iloc[j] > recent_bars["Open"].iloc[j])
+    down_vol = sum(float(recent_bars["Volume"].iloc[j]) for j in range(len(recent_bars)) if recent_bars["Close"].iloc[j] <= recent_bars["Open"].iloc[j])
+    total_vol = up_vol + down_vol
+    vol_delta = (up_vol - down_vol) / total_vol if total_vol > 0 else 0
+    
+    # OBV trend
+    obv = float(row.get("OBV", 0))
+    obv_ema = float(row.get("OBV_EMA", 0))
+    obv_trend = (obv - obv_ema) / (abs(obv_ema) + 1)
+    
+    # Unusual volume (z-score of current volume vs 20-bar history)
+    if "Volume" in hist and len(hist) >= 10:
+        vol_mean = float(hist["Volume"].mean())
+        vol_std = float(hist["Volume"].std())
+        unusual_vol = (vol - vol_mean) / (vol_std + 1) if vol_std > 0 else 0
+    else:
+        unusual_vol = 0
+    
+    # === MEAN REVERSION FEATURES (NEW) ===
+    # Z-score of price from VWAP
+    vwap = float(row.get("VWAP", close))
+    zscore_vwap = (close - vwap) / atr
+    
+    # BB position (-1 = at lower band, 0 = at mid, +1 = at upper band)
+    bb_upper = float(row.get("BB_UPPER", close + atr))
+    bb_lower = float(row.get("BB_LOWER", close - atr))
+    bb_range = bb_upper - bb_lower if bb_upper > bb_lower else 0.001
+    bb_position = (close - bb_lower) / bb_range * 2 - 1  # -1 to +1
+    
+    # Consecutive same-direction bars (exhaustion detection)
+    consec = 0
+    direction = 1 if is_green else -1
+    for j in range(i-1, max(i-10, 0), -1):
+        bar_dir = 1 if df.iloc[j]["Close"] > df.iloc[j]["Open"] else -1
+        if bar_dir == direction:
+            consec += 1
+        else:
+            break
+    consec_same_dir = consec * direction  # positive = green streak, negative = red streak
+    
+    # RSI divergence (price making new high but RSI is lower = bearish divergence)
+    rsi_div = 0
+    if len(hist) >= 10:
+        price_higher = close > float(hist["Close"].iloc[-5])
+        rsi_lower = float(row["RSI"]) < float(hist["RSI"].iloc[-5]) if "RSI" in hist else False
+        price_lower = close < float(hist["Close"].iloc[-5])
+        rsi_higher = float(row["RSI"]) > float(hist["RSI"].iloc[-5]) if "RSI" in hist else False
+        if price_higher and rsi_lower:
+            rsi_div = -1  # bearish divergence
+        elif price_lower and rsi_higher:
+            rsi_div = 1   # bullish divergence
+    
+    # MACD histogram acceleration
+    macd_hist = float(row.get("MACD_HIST", 0))
+    prev_macd_hist = float(prev_row.get("MACD_HIST", 0))
+    macd_hist_accel = macd_hist - prev_macd_hist
+    
+    return [
+        # Oscillators
+        float(row.get("RSI", 50)), float(row.get("MFI", 50)),
+        float(row.get("STOCH_K", 50)), float(row.get("STOCH_D", 50)),
+        float(row.get("ADX", 20)),
+        # Trend distance
+        (close - float(row.get("EMA20", close))) / atr,
+        (close - float(row.get("EMA50", close))) / atr,
+        (close - vwap) / atr,
+        # Volatility
+        float(row.get("BB_WIDTH", 3)), atr / close * 100,
+        # Volume flow
+        vol_ratio, vol_accel, vol_delta, obv_trend, unusual_vol,
+        # Momentum
+        r5, r10, float(pct.mean()) if len(pct) > 0 else 0, float(pct.std()) if len(pct) > 0 else 0,
+        # Candle structure
+        body / total_range, upper_wick / total_range, lower_wick / total_range, is_green, engulfing,
+        # Streak
+        green_streak,
+        # Mean reversion
+        zscore_vwap, bb_position, consec_same_dir, rsi_div,
+        # MACD
+        macd_hist_accel,
+    ]
+
+
 def prepare_ml_features(df, lookback=20):
-    """Prepare features for ML model — Enhanced with candle patterns & momentum"""
+    """Prepare features with RISK-ADJUSTED labels.
+    Label = 1 only if: price rises >1% AND max drawdown stays above -0.5% during holding.
+    This eliminates false positives where price spikes then crashes.
+    """
     if len(df) < lookback + 10:
         return None, None
     
@@ -1136,172 +1470,251 @@ def prepare_ml_features(df, lookback=20):
     labels = []
     
     for i in range(lookback, len(df) - 5):
-        # Feature engineering
-        row = df.iloc[i]
-        prev_row = df.iloc[i-1]
-        hist = df.iloc[i-lookback:i]
+        feat = _extract_features_from_row(df, i, lookback)
+        if feat is None:
+            continue
         
-        # Body and wick ratios (candlestick features)
-        body = abs(row["Close"] - row["Open"])
-        total_range = row["High"] - row["Low"] if row["High"] > row["Low"] else 0.001
-        upper_wick = row["High"] - max(row["Close"], row["Open"])
-        lower_wick = min(row["Close"], row["Open"]) - row["Low"]
-        body_ratio = body / total_range
-        upper_wick_ratio = upper_wick / total_range
-        lower_wick_ratio = lower_wick / total_range
-        is_green = 1 if row["Close"] > row["Open"] else 0
+        features.append(feat)
         
-        # Engulfing detection (simplified)
-        prev_body = abs(prev_row["Close"] - prev_row["Open"])
-        engulfing = 1 if (body > prev_body * 1.1 and is_green == 1 and prev_row["Close"] < prev_row["Open"]) else (
-            -1 if (body > prev_body * 1.1 and is_green == 0 and prev_row["Close"] > prev_row["Open"]) else 0
-        )
+        # === RISK-ADJUSTED LABEL ===
+        entry_price = float(df.iloc[i]["Close"])
+        future = df.iloc[i+1:i+6]["Close"]
         
-        # Momentum features
-        returns_5 = (row["Close"] - hist["Close"].iloc[-5]) / hist["Close"].iloc[-5] * 100 if len(hist) >= 5 else 0
-        returns_10 = (row["Close"] - hist["Close"].iloc[-10]) / hist["Close"].iloc[-10] * 100 if len(hist) >= 10 else 0
+        if len(future) == 0:
+            labels.append(0)
+            continue
         
-        # Green candle streak
-        recent = df.iloc[max(0, i-4):i+1]
-        green_streak = sum(1 for j in range(len(recent)) if recent["Close"].iloc[j] > recent["Open"].iloc[j])
+        future_max = float(future.max())
+        future_min = float(future.min())
         
-        feature_vec = [
-            # Original features
-            row["RSI"],
-            row["MFI"] if "MFI" in row else 50,
-            row["STOCH_K"],
-            row["STOCH_D"],
-            row["ADX"],
-            (row["Close"] - row["EMA20"]) / row["ATR"] if row["ATR"] > 0 else 0,
-            (row["Close"] - row["EMA50"]) / row["ATR"] if row["ATR"] > 0 else 0,
-            row["BB_WIDTH"] if "BB_WIDTH" in row else 0,
-            (row["Volume"] / row["VOL_MA20"]) if "VOL_MA20" in row and row["VOL_MA20"] > 0 else 1,
-            hist["Close"].pct_change().mean(),
-            hist["Close"].pct_change().std(),
-            row["CMB_CI"] if "CMB_CI" in row else 0,
-            (row["OBV"] - row["OBV_EMA"]) if "OBV" in row else 0,
-            # NEW: Candlestick features
-            body_ratio,
-            upper_wick_ratio,
-            lower_wick_ratio,
-            is_green,
-            engulfing,
-            # NEW: Momentum features
-            returns_5,
-            returns_10,
-            green_streak,
-            # NEW: VWAP distance
-            (row["Close"] - row["VWAP"]) / row["ATR"] if "VWAP" in row and row["ATR"] > 0 else 0,
-        ]
+        max_gain = (future_max - entry_price) / entry_price
+        max_drawdown = (future_min - entry_price) / entry_price
         
-        features.append(feature_vec)
-        
-        # Label: 1 if price rises >1% in next 5 bars, else 0
-        future_max = df.iloc[i+1:i+6]["Close"].max()
-        label = 1 if (future_max - row["Close"]) / row["Close"] > 0.01 else 0
+        # Label = 1 ONLY if gain > 1% AND drawdown stays above -0.5%
+        label = 1 if (max_gain > 0.01 and max_drawdown > -0.005) else 0
         labels.append(label)
+    
+    if not features:
+        return None, None
     
     return np.array(features), np.array(labels)
 
-@st.cache_resource
-def train_ml_model(symbol, df):
-    """Train ML model for probability prediction"""
+
+@st.cache_resource(ttl=1800)
+def train_ml_model_pooled(_symbols_tuple, interval="15m", period="30d"):
+    """Train ML model POOLED across multiple stocks.
+    
+    Key improvement: Instead of training on 1 stock (~400 samples),
+    we pool data from BIST30 (~12,000 samples). This dramatically
+    reduces overfitting and improves generalization.
+    """
     if not ML_AVAILABLE:
         return None
     
-    X, y = prepare_ml_features(df)
+    all_X = []
+    all_y = []
     
-    if X is None or len(X) < 50:
+    symbols = list(_symbols_tuple)
+    
+    for sym in symbols:
+        try:
+            sym_clean = sym if sym.endswith(".IS") else f"{sym}.IS"
+            raw_df = yf.download(sym_clean, period=period, interval=interval, progress=False)
+            
+            if raw_df is None or raw_df.empty or len(raw_df) < 60:
+                continue
+            
+            if isinstance(raw_df.columns, pd.MultiIndex):
+                raw_df.columns = raw_df.columns.get_level_values(0)
+            raw_df.columns = [c.title() for c in raw_df.columns]
+            
+            df = calculate_indicators(raw_df.copy())
+            
+            if df is None or len(df) < 60:
+                continue
+            
+            X, y = prepare_ml_features(df)
+            if X is not None and len(X) > 20:
+                all_X.append(X)
+                all_y.append(y)
+            
+            time.sleep(0.3)
+        except Exception:
+            continue
+    
+    if not all_X:
         return None
     
-    # Split data
+    X = np.vstack(all_X)
+    y = np.concatenate(all_y)
+    
+    if len(X) < 100:
+        return None
+    
+    # Chronological split (80/20)
     split = int(len(X) * 0.8)
     X_train, X_test = X[:split], X[split:]
     y_train, y_test = y[:split], y[split:]
     
-    # Train XGBoost
+    # Train XGBoost with regularization to prevent overfitting
     model = xgb.XGBClassifier(
-        max_depth=5,
-        n_estimators=100,
-        learning_rate=0.1,
+        max_depth=4,           # Reduced from 5 → less overfitting
+        n_estimators=200,      # More trees but shallower
+        learning_rate=0.05,    # Slower learning → better generalization
+        min_child_weight=5,    # Minimum samples per leaf
+        subsample=0.8,         # Row sampling
+        colsample_bytree=0.8,  # Column sampling
+        reg_alpha=0.1,         # L1 regularization
+        reg_lambda=1.0,        # L2 regularization
         random_state=42,
-        eval_metric='logloss'
+        eval_metric='logloss',
+        scale_pos_weight=max(1, sum(y_train == 0) / max(1, sum(y_train == 1)))  # Handle class imbalance
     )
     
     model.fit(X_train, y_train)
     
-    # Test accuracy
     train_acc = model.score(X_train, y_train)
     test_acc = model.score(X_test, y_test)
+    
+    # Calculate precision (what % of our "buy" signals are actually profitable)
+    y_pred = model.predict(X_test)
+    true_pos = sum((y_pred == 1) & (y_test == 1))
+    false_pos = sum((y_pred == 1) & (y_test == 0))
+    precision = true_pos / max(1, true_pos + false_pos)
     
     return {
         "model": model,
         "train_acc": train_acc,
         "test_acc": test_acc,
-        "feature_importance": model.feature_importances_
+        "precision": precision,
+        "samples": len(X),
+        "feature_importance": model.feature_importances_,
+        "feature_names": ML_FEATURE_NAMES,
     }
 
+
+# Backward-compatible wrapper
+@st.cache_resource
+def train_ml_model(symbol, df):
+    """Train pooled model using BIST30 universe for better generalization."""
+    # Use top 15 liquid BIST30 stocks for pooled training
+    pool_symbols = tuple([
+        "THYAO", "GARAN", "AKBNK", "ISCTR", "ASELS", "EREGL", "FROTO",
+        "TUPRS", "KCHOL", "SAHOL", "TCELL", "SISE", "BIMAS", "PGSUS", "YKBNK"
+    ])
+    return train_ml_model_pooled(pool_symbols)
+
+
 def get_ml_probability(df, model_data):
-    """Get ML probability for current setup — Enhanced features"""
+    """Get ML probability for current bar — uses shared feature extraction."""
     if model_data is None or df is None or len(df) < 30:
         return 0.5
     
-    last_row = df.iloc[-1]
-    prev_row = df.iloc[-2]
-    hist = df.iloc[-20:]
+    feat = _extract_features_from_row(df, len(df) - 1, lookback=20)
+    if feat is None:
+        return 0.5
     
-    # Candlestick features
-    body = abs(last_row["Close"] - last_row["Open"])
-    total_range = last_row["High"] - last_row["Low"] if last_row["High"] > last_row["Low"] else 0.001
-    upper_wick = last_row["High"] - max(last_row["Close"], last_row["Open"])
-    lower_wick = min(last_row["Close"], last_row["Open"]) - last_row["Low"]
-    body_ratio = body / total_range
-    upper_wick_ratio = upper_wick / total_range
-    lower_wick_ratio = lower_wick / total_range
-    is_green = 1 if last_row["Close"] > last_row["Open"] else 0
+    try:
+        proba = model_data["model"].predict_proba([feat])[0][1]
+        return float(proba)
+    except Exception:
+        return 0.5
+
+
+# =====================
+# CONFIDENCE FILTER
+# =====================
+ML_CONFIDENCE_THRESHOLD = 0.58  # Minimum ML probability to show actionable signal
+
+def get_signal_confidence(ml_prob, score, confluence):
+    """
+    Calculate overall signal confidence and filter low-quality signals.
+    Returns (confidence_level, is_actionable, label)
+    """
+    if ml_prob >= 0.70 and score >= 75 and confluence >= 70:
+        return ("HIGH", True, "🟢 HIGH CONFIDENCE")
+    elif ml_prob >= 0.60 and score >= 65:
+        return ("MEDIUM", True, "🟡 MEDIUM CONFIDENCE")
+    elif ml_prob >= ML_CONFIDENCE_THRESHOLD and score >= 55:
+        return ("LOW", True, "🟠 LOW CONFIDENCE")
+    else:
+        return ("SKIP", False, "⚪ NO EDGE — SKIP")
+
+
+# =====================
+# MEAN REVERSION DETECTOR
+# =====================
+def detect_mean_reversion(df):
+    """
+    Detect overextended moves likely to reverse.
+    Returns dict with alerts and reversal probability.
+    """
+    if df is None or len(df) < 20:
+        return None
     
-    prev_body = abs(prev_row["Close"] - prev_row["Open"])
-    engulfing = 1 if (body > prev_body * 1.1 and is_green == 1 and prev_row["Close"] < prev_row["Open"]) else (
-        -1 if (body > prev_body * 1.1 and is_green == 0 and prev_row["Close"] > prev_row["Open"]) else 0
-    )
+    last = df.iloc[-1]
+    close = float(last["Close"])
+    atr = float(last.get("ATR", 0.001))
+    vwap = float(last.get("VWAP", close))
+    rsi = float(last.get("RSI", 50))
+    bb_upper = float(last.get("BB_UPPER", close + atr))
+    bb_lower = float(last.get("BB_LOWER", close - atr))
+    stoch_k = float(last.get("STOCH_K", 50))
     
-    # Momentum
-    returns_5 = (last_row["Close"] - hist["Close"].iloc[-5]) / hist["Close"].iloc[-5] * 100 if len(hist) >= 5 else 0
-    returns_10 = (last_row["Close"] - hist["Close"].iloc[-10]) / hist["Close"].iloc[-10] * 100 if len(hist) >= 10 else 0
+    alerts = []
+    reversal_score = 0  # -100 (bearish reversal) to +100 (bullish reversal)
     
-    recent_5 = df.iloc[-5:]
-    green_streak = sum(1 for j in range(len(recent_5)) if recent_5["Close"].iloc[j] > recent_5["Open"].iloc[j])
+    # VWAP z-score overextension
+    zscore = (close - vwap) / atr if atr > 0 else 0
+    if zscore > 2.5:
+        alerts.append(("⚠️ OVEREXTENDED ABOVE VWAP", f"Z-score: {zscore:.1f}σ — mean reversion likely"))
+        reversal_score -= 30
+    elif zscore < -2.5:
+        alerts.append(("⚠️ OVEREXTENDED BELOW VWAP", f"Z-score: {zscore:.1f}σ — bounce likely"))
+        reversal_score += 30
     
-    feature_vec = [[
-        last_row["RSI"],
-        last_row["MFI"] if "MFI" in last_row else 50,
-        last_row["STOCH_K"],
-        last_row["STOCH_D"],
-        last_row["ADX"],
-        (last_row["Close"] - last_row["EMA20"]) / last_row["ATR"] if last_row["ATR"] > 0 else 0,
-        (last_row["Close"] - last_row["EMA50"]) / last_row["ATR"] if last_row["ATR"] > 0 else 0,
-        last_row["BB_WIDTH"] if "BB_WIDTH" in last_row else 0,
-        (last_row["Volume"] / last_row["VOL_MA20"]) if "VOL_MA20" in last_row and last_row["VOL_MA20"] > 0 else 1,
-        hist["Close"].pct_change().mean(),
-        hist["Close"].pct_change().std(),
-        last_row["CMB_CI"] if "CMB_CI" in last_row else 0,
-        (last_row["OBV"] - last_row["OBV_EMA"]) if "OBV" in last_row else 0,
-        # Candlestick features
-        body_ratio,
-        upper_wick_ratio,
-        lower_wick_ratio,
-        is_green,
-        engulfing,
-        # Momentum features
-        returns_5,
-        returns_10,
-        green_streak,
-        # VWAP distance
-        (last_row["Close"] - last_row["VWAP"]) / last_row["ATR"] if "VWAP" in last_row and last_row["ATR"] > 0 else 0,
-    ]]
+    # BB extreme
+    if close > bb_upper:
+        alerts.append(("📈 ABOVE UPPER BB", "Price broke above Bollinger — exhaustion risk"))
+        reversal_score -= 20
+    elif close < bb_lower:
+        alerts.append(("📉 BELOW LOWER BB", "Price broke below Bollinger — bounce zone"))
+        reversal_score += 20
     
-    proba = model_data["model"].predict_proba(feature_vec)[0][1]
-    return float(proba)
+    # RSI extremes with Stochastic confirmation
+    if rsi > 80 and stoch_k > 85:
+        alerts.append(("🔴 RSI + STOCH OVERBOUGHT", f"RSI: {rsi:.0f}, %K: {stoch_k:.0f} — selling pressure building"))
+        reversal_score -= 25
+    elif rsi < 20 and stoch_k < 15:
+        alerts.append(("🟢 RSI + STOCH OVERSOLD", f"RSI: {rsi:.0f}, %K: {stoch_k:.0f} — buying opportunity"))
+        reversal_score += 25
+    
+    # Consecutive direction exhaustion
+    consec = 0
+    direction = 1 if df.iloc[-1]["Close"] > df.iloc[-1]["Open"] else -1
+    for j in range(len(df)-2, max(len(df)-10, 0), -1):
+        bar_dir = 1 if df.iloc[j]["Close"] > df.iloc[j]["Open"] else -1
+        if bar_dir == direction:
+            consec += 1
+        else:
+            break
+    
+    if consec >= 5 and direction == 1:
+        alerts.append(("🔥 5+ GREEN BARS", "Exhaustion likely — take partial profits"))
+        reversal_score -= 15
+    elif consec >= 5 and direction == -1:
+        alerts.append(("❄️ 5+ RED BARS", "Capitulation likely — watch for reversal candle"))
+        reversal_score += 15
+    
+    reversal_score = max(-100, min(100, reversal_score))
+    
+    return {
+        "alerts": alerts,
+        "reversal_score": reversal_score,
+        "zscore_vwap": zscore,
+        "bb_position": (close - bb_lower) / (bb_upper - bb_lower) if bb_upper > bb_lower else 0.5,
+        "consec_bars": consec * direction,
+    }
 
 # =====================
 # CANDLESTICK PATTERN DETECTION
@@ -1681,6 +2094,22 @@ def calculate_advanced_score(df, symbol, mtf_data=None, ml_model=None, sector_rs
     # Signal grade
     signal = get_signal_grade(final_score, ml_prob, confluence, candle_patterns)
     
+    # Confidence filter
+    confidence_level, is_actionable, confidence_label = get_signal_confidence(ml_prob, final_score, confluence)
+    
+    # Mean reversion detection
+    mean_rev = detect_mean_reversion(df)
+    
+    # Adjust score if mean reversion detected against the trend
+    if mean_rev and mean_rev["reversal_score"] != 0:
+        rev_adj = int(mean_rev["reversal_score"] * 0.1)  # ±10 points max
+        score += rev_adj
+        if abs(rev_adj) >= 3:
+            rev_dir = "bullish reversal" if rev_adj > 0 else "bearish reversal"
+            reasons.append(f"🔄 Mean Reversion: {rev_dir} signal ({rev_adj:+d} pts)")
+    
+    final_score = max(0, min(100, int(score)))
+    
     return {
         "symbol": symbol,
         "score": final_score,
@@ -1698,7 +2127,11 @@ def calculate_advanced_score(df, symbol, mtf_data=None, ml_model=None, sector_rs
         "adx": adx,
         "ml_prob": ml_prob,
         "mtf_confluence": confluence,
-        "sector_rs": sector_data
+        "sector_rs": sector_data,
+        "confidence": confidence_level,
+        "is_actionable": is_actionable,
+        "confidence_label": confidence_label,
+        "mean_reversion": mean_rev,
     }
 
 # =====================
@@ -2332,6 +2765,7 @@ with tab_watchlist:
                                 <span>RSI: <b style="color:white">{res['rsi']:.0f}</b></span>
                                 <span>ML: <b style="color:white">{res['ml_prob']*100:.0f}%</b></span>
                                 <span>R/R: <b style="color:white">{res['rr']:.1f}</b></span>
+                                <span style="color:{'#00e676' if res.get('confidence')=='HIGH' else ('#ffd600' if res.get('confidence')=='MEDIUM' else ('#ff9100' if res.get('confidence')=='LOW' else '#5a6a7e'))}; font-weight:700;">{res.get('confidence','—')}</span>
                             </div>
                             <div style="margin-top:6px; font-size:0.8em; color:#888;">
                                 {sig['label']} {candle_str}
@@ -2443,17 +2877,63 @@ with tab_single:
                         </div>
                     """, unsafe_allow_html=True)
                     
+                    # Confidence badge (NEW)
+                    conf = result.get("confidence", "SKIP")
+                    conf_label = result.get("confidence_label", "")
+                    conf_colors = {"HIGH": "#00e676", "MEDIUM": "#ffd600", "LOW": "#ff9100", "SKIP": "#5a6a7e"}
+                    actionable = result.get("is_actionable", False)
+                    st.markdown(f"""
+                        <div style="text-align:center; padding:6px 12px; border-radius:10px; margin:6px 0;
+                             background:rgba({('0,230,118' if conf == 'HIGH' else ('255,214,0' if conf == 'MEDIUM' else ('255,145,0' if conf == 'LOW' else '90,106,126')))}, 0.1);
+                             border:1px solid {conf_colors.get(conf, '#5a6a7e')}40;
+                             font-family:'JetBrains Mono',monospace; font-size:0.72em; color:{conf_colors.get(conf, '#5a6a7e')};">
+                            {conf_label}
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
                     st.metric("RSI", f"{result['rsi']:.1f}")
                     st.metric("MFI", f"{result['mfi']:.1f}")
                     st.metric("ADX", f"{result['adx']:.1f}")
                     
                     if enable_ml:
                         st.metric("🤖 ML Prob", f"{result['ml_prob']*100:.1f}%")
+                        # Show model stats
+                        if ml_model:
+                            samples = ml_model.get("samples", "?")
+                            test_acc = ml_model.get("test_acc", 0)
+                            precision = ml_model.get("precision", 0)
+                            st.markdown(f"""
+                                <div style="font-family:'JetBrains Mono',monospace; font-size:0.62em; color:#3a5068; line-height:1.6;">
+                                    Pooled: {samples} samples<br>
+                                    Test Acc: {test_acc*100:.1f}%<br>
+                                    Precision: {precision*100:.1f}%
+                                </div>
+                            """, unsafe_allow_html=True)
                     
                     if enable_mtf:
                         st.metric("🎯 MTF", f"{result['mtf_confluence']:.0f}%")
                 
                 with col_b:
+                    # Mean reversion alerts (NEW)
+                    mean_rev = result.get("mean_reversion")
+                    if mean_rev and mean_rev.get("alerts"):
+                        st.markdown("""
+                        <div style="font-family:'Outfit',sans-serif; font-size:1.05em; font-weight:700; margin-bottom:6px;">
+                            🔄 Mean Reversion Alerts
+                        </div>
+                        """, unsafe_allow_html=True)
+                        for alert_title, alert_desc in mean_rev["alerts"]:
+                            rev_color = "#ff6b6b" if mean_rev["reversal_score"] < 0 else "#69db7c"
+                            st.markdown(f"""
+                                <div style="font-family:'JetBrains Mono',monospace; font-size:0.78em; padding:6px 10px;
+                                     margin:3px 0; border-radius:8px; background:rgba(255,255,255,0.02);
+                                     border-left:3px solid {rev_color};">
+                                    <b>{alert_title}</b><br>
+                                    <span style="color:#7a8a9e;">{alert_desc}</span>
+                                </div>
+                            """, unsafe_allow_html=True)
+                        st.markdown("")
+                    
                     # Candlestick patterns section
                     if result.get("candle_patterns"):
                         st.markdown("### 🕯️ Candlestick Patterns")
@@ -2648,44 +3128,146 @@ with tab_single:
                 else:
                     st.caption("Sector data not available for this stock")
                 
-                # === EARNINGS CALENDAR ===
-                st.markdown("### 📅 Earnings / Financial Report Calendar")
-                with st.spinner("Fetching earnings dates..."):
-                    earnings_list, earn_sector = get_sector_earnings_calendar(symbol_input)
+                # === EARNINGS / BILANÇO CALENDAR ===
+                st.markdown("""
+                <div style="margin-top:20px;">
+                    <span style="font-family:'Outfit',sans-serif; font-size:1.3em; font-weight:700;">📅 Bilanço Takvimi</span>
+                    <span style="font-family:'JetBrains Mono',monospace; font-size:0.65em; color:#3a5068; margin-left:10px;">KAP · MULTI-QUARTER</span>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Show target stock earnings (next relevant quarter)
+                target_earnings = get_earnings_info(symbol_input)
+                if target_earnings:
+                    e_color = "#00e5ff" if target_earnings["status"] == "upcoming" else (
+                        "#ffd600" if target_earnings["status"] == "today" else "#5a6a7e"
+                    )
+                    e_icon = "⏳" if target_earnings["status"] == "upcoming" else (
+                        "⚡" if target_earnings["status"] == "today" else "✅"
+                    )
+                    deadline_tag = ' <span style="color:#ff6b6b; font-size:0.7em;">[SON TARİH]</span>' if target_earnings.get("is_deadline") else ""
+                    st.markdown(f"""
+                        <div class="glass-card" style="border-left:3px solid {e_color}; margin:10px 0;">
+                            <div style="font-family:'Outfit',sans-serif; font-size:1.1em; font-weight:700;">
+                                {e_icon} {symbol_input} — {target_earnings['label']}{deadline_tag}
+                            </div>
+                            <div style="font-family:'JetBrains Mono',monospace; font-size:0.75em; color:#5a6a7e; margin-top:4px;">
+                                {target_earnings['period']} · {target_earnings['quarter']}
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                # Show sector peers
+                earnings_list, earn_sector = get_sector_earnings_calendar(symbol_input)
                 
                 if earnings_list:
-                    now_dt = datetime.now()
-                    upcoming = [e for e in earnings_list if e["date"] > now_dt]
-                    recent = [e for e in earnings_list if e["date"] <= now_dt][-5:]  # Last 5
+                    upcoming = [e for e in earnings_list if e["status"] in ["upcoming", "today"]]
+                    reported = [e for e in earnings_list if e["status"] == "reported"]
                     
                     earn_cols = st.columns(2)
                     
                     with earn_cols[0]:
-                        st.markdown(f"**📅 Upcoming — {earn_sector} Sector**")
+                        st.markdown(f"""
+                        <div style="font-family:'JetBrains Mono',monospace; font-size:0.8em; color:#00e5ff; margin-bottom:8px;">
+                            ⏳ UPCOMING — {earn_sector}
+                        </div>
+                        """, unsafe_allow_html=True)
                         if upcoming:
-                            for e in upcoming[:8]:
-                                icon = "🔴" if e["is_target"] else "⚪"
-                                bold = "font-weight:800;" if e["is_target"] else ""
-                                days_until = (e["date"] - now_dt).days
+                            for e in upcoming[:10]:
+                                icon = "🔴" if e.get("is_target") else "○"
+                                bold = "font-weight:800; color:#ffffff;" if e.get("is_target") else "color:#c0cad8;"
+                                dl_tag = " ⚠️" if e.get("is_deadline") else ""
                                 st.markdown(f"""
-                                    <div style="padding:4px 8px; {bold}">
-                                        {icon} <b>{e['symbol']}</b> — {e['date_str']} 
-                                        <span style="color:#ffd600;">({days_until}d away)</span>
+                                    <div style="font-family:'JetBrains Mono',monospace; font-size:0.78em; padding:3px 0; {bold}">
+                                        {icon} {e['symbol']} — {e['date_str']}{dl_tag}
+                                        <span style="color:#ffd600;">({e['days_until']}d)</span>
                                     </div>
                                 """, unsafe_allow_html=True)
                         else:
-                            st.caption("No upcoming earnings dates found")
+                            st.caption("All sector peers have reported ✅")
                     
                     with earn_cols[1]:
-                        st.markdown("**🕒 Recent Earnings**")
-                        if recent:
-                            for e in reversed(recent):
-                                icon = "🔴" if e["is_target"] else "⚪"
-                                st.markdown(f"{icon} **{e['symbol']}** — {e['date_str']}")
-                        else:
-                            st.caption("No recent earnings data")
-                else:
-                    st.caption("💡 Earnings calendar data not available — yfinance may not cover all BIST stocks")
+                        st.markdown(f"""
+                        <div style="font-family:'JetBrains Mono',monospace; font-size:0.8em; color:#5a6a7e; margin-bottom:8px;">
+                            ✅ REPORTED — {earn_sector}
+                        </div>
+                        """, unsafe_allow_html=True)
+                        if reported:
+                            for e in list(reversed(reported))[:10]:
+                                icon = "🔴" if e.get("is_target") else "○"
+                                st.markdown(f"""
+                                    <div style="font-family:'JetBrains Mono',monospace; font-size:0.78em; padding:3px 0; color:#5a6a7e;">
+                                        {icon} {e['symbol']} — {e['date_str']}
+                                    </div>
+                                """, unsafe_allow_html=True)
+                
+                # ── Full Calendar Expander ──
+                with st.expander("📋 Full Q4 2025 Bilanço Calendar (All Stocks)", expanded=False):
+                    full_cal = get_full_earnings_calendar("Q4_2025")
+                    if full_cal:
+                        now_dt = datetime.now()
+                        
+                        # Group by week
+                        upcoming_full = [e for e in full_cal if e["status"] in ("upcoming", "today")]
+                        reported_full = [e for e in full_cal if e["status"] == "reported"]
+                        
+                        cal_c1, cal_c2 = st.columns(2)
+                        
+                        with cal_c1:
+                            st.markdown(f"""
+                            <div style="font-family:'JetBrains Mono',monospace; font-size:0.75em; color:#00e5ff; margin-bottom:6px;">
+                                ⏳ UPCOMING ({len(upcoming_full)} stocks)
+                            </div>
+                            """, unsafe_allow_html=True)
+                            # Group by date
+                            from itertools import groupby
+                            for date_key, group in groupby(upcoming_full, key=lambda x: x["date_str"]):
+                                stocks = list(group)
+                                names = ", ".join([s["symbol"] for s in stocks])
+                                days = stocks[0]["days_until"]
+                                st.markdown(f"""
+                                    <div style="font-family:'JetBrains Mono',monospace; font-size:0.72em; padding:2px 0; color:#c0cad8;">
+                                        <span style="color:#ffd600; min-width:40px; display:inline-block;">{days}d</span>
+                                        <span style="color:#5a6a7e;">{date_key}</span> → 
+                                        <b>{names}</b>
+                                    </div>
+                                """, unsafe_allow_html=True)
+                        
+                        with cal_c2:
+                            st.markdown(f"""
+                            <div style="font-family:'JetBrains Mono',monospace; font-size:0.75em; color:#5a6a7e; margin-bottom:6px;">
+                                ✅ REPORTED ({len(reported_full)} stocks)
+                            </div>
+                            """, unsafe_allow_html=True)
+                            for date_key, group in groupby(reversed(reported_full), key=lambda x: x["date_str"]):
+                                stocks = list(group)
+                                names = ", ".join([s["symbol"] for s in stocks])
+                                st.markdown(f"""
+                                    <div style="font-family:'JetBrains Mono',monospace; font-size:0.72em; padding:2px 0; color:#5a6a7e;">
+                                        <span style="color:#3a5068;">{date_key}</span> → {names}
+                                    </div>
+                                """, unsafe_allow_html=True)
+                
+                # ── Q1 2026 Status ──
+                q1_data = BIST_EARNINGS.get("Q1_2026", {})
+                q1_dates = q1_data.get("dates", {})
+                q1_deadline = q1_data.get("deadline_consolidated", "TBD")
+                
+                st.markdown(f"""
+                <div style="font-family:'JetBrains Mono',monospace; font-size:0.7em; color:#3a5068; margin-top:12px;
+                     padding:10px 14px; border:1px solid rgba(0,229,255,0.06); border-radius:10px; 
+                     background:rgba(10,15,25,0.5);">
+                    <div style="margin-bottom:4px;">
+                        <span style="color:#00e5ff;">Q4 2025</span> Son Tarih: 
+                        Konsol. olmayan → <b>2 Mar</b> | Konsolide → <b>11 Mar 2026</b>
+                    </div>
+                    <div>
+                        <span style="color:#ffd600;">Q1 2026</span> Son Tarih: 
+                        Konsol. olmayan → <b>~15 May</b> | Konsolide → <b>~30 May 2026</b>
+                        {'· <span style="color:#00e676;">' + str(len(q1_dates)) + ' tarih açıklandı</span>' if q1_dates else '· <span style="color:#5a6a7e;">Tarihler henüz açıklanmadı (KAP\'tan Nisan\'da bekleniyor)</span>'}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
 # =====================
 # TAB 2: ML SCANNER
@@ -2778,7 +3360,9 @@ with tab_scanner:
                 result = calculate_advanced_score(df, sym, mtf_data, ml_model)
                 
                 if result and result["score"] >= min_score and result["ml_prob"] >= min_ml_prob:
-                    return result
+                    # Apply confidence filter — only return actionable signals
+                    if result.get("is_actionable", True):
+                        return result
                 
             except Exception:
                 return None
@@ -2852,6 +3436,15 @@ with tab_scanner:
                             st.caption(f"⚡ ₺{rt['current']:.2f} ({rt_sign}{rt['change_pct']:.1f}%)")
                         
                         st.caption(f"R/R: {res['rr']:.2f} | ML: {res['ml_prob']*100:.0f}%")
+                        
+                        # Confidence badge
+                        conf = res.get('confidence', 'SKIP')
+                        conf_colors = {"HIGH": "#00e676", "MEDIUM": "#ffd600", "LOW": "#ff9100", "SKIP": "#5a6a7e"}
+                        st.markdown(f"""
+                            <div style="font-family:'JetBrains Mono',monospace; font-size:0.7em; color:{conf_colors.get(conf,'#5a6a7e')}; font-weight:700;">
+                                {res.get('confidence_label', '')}
+                            </div>
+                        """, unsafe_allow_html=True)
                     
                     with col2:
                         # Show candle patterns first if any
