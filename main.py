@@ -999,15 +999,15 @@ def get_data_with_db_cache(symbol, period="30d", interval="15m"):
     df.columns = [c.title() for c in df.columns]
     
     # === FINNHUB REAL-TIME BRIDGE ===
-    # yfinance BIST data is typically 1-3 hours delayed.
-    # When stale, we append a synthetic bar using Finnhub's real-time quote.
+    # yfinance BIST data typically stops at ~14:45 (misses afternoon session 14:45-18:00).
+    # We ALWAYS try to bridge if data is stale, regardless of current market hours.
+    # If Finnhub returns a valid quote, it means there's fresher data available.
     bridge_status = "not_attempted"
     try:
         last_ts = df.index[-1]
         
         # Convert last_ts to a naive datetime in Turkey time for comparison
         if hasattr(last_ts, 'tzinfo') and last_ts.tzinfo is not None:
-            # It's tz-aware — convert to Turkey, then strip tz
             try:
                 import pytz
                 turkey_tz = pytz.timezone("Europe/Istanbul")
@@ -1016,7 +1016,6 @@ def get_data_with_db_cache(symbol, period="30d", interval="15m"):
             except Exception:
                 last_ts_naive = last_ts.replace(tzinfo=None)
         else:
-            # tz-naive — yfinance sometimes returns Turkey time as naive
             last_ts_naive = pd.Timestamp(last_ts)
         
         # Get current Turkey time
@@ -1028,13 +1027,22 @@ def get_data_with_db_cache(symbol, period="30d", interval="15m"):
             now_turkey = datetime.utcnow() + timedelta(hours=3)
         
         data_age_minutes = (now_turkey - last_ts_naive).total_seconds() / 60
-        
-        # BIST market hours: 10:00 - 18:10 Turkey time (continuous session)
-        market_open = (10 <= now_turkey.hour < 18) or (now_turkey.hour == 18 and now_turkey.minute <= 10)
-        # Also check if it's a weekday
         is_weekday = now_turkey.weekday() < 5
         
-        if data_age_minutes > 18 and market_open and is_weekday:
+        # Check if last bar is from today's session
+        same_day = last_ts_naive.date() == now_turkey.date()
+        
+        # Bridge conditions:
+        # 1. Data is >18 min old AND it's a weekday
+        # 2. We DON'T check market_open — Finnhub quote availability IS our market indicator
+        # 3. Skip if data is from a previous day and it's before market open (10:00)
+        should_bridge = (
+            data_age_minutes > 18 
+            and is_weekday
+            and not (not same_day and now_turkey.hour < 10)  # Don't bridge pre-market with yesterday's close
+        )
+        
+        if should_bridge:
             quote = get_realtime_quote_finnhub(symbol)
             if quote and quote.get("current", 0) > 0:
                 q_price = float(quote["current"])
@@ -1042,44 +1050,62 @@ def get_data_with_db_cache(symbol, period="30d", interval="15m"):
                 q_low = float(min(quote.get("low", q_price), q_price)) if quote.get("low", 0) > 0 else q_price
                 q_open = float(quote.get("open", q_price)) if quote.get("open", 0) > 0 else q_price
                 
-                # Round bar_time to current interval boundary
+                # For the bar timestamp:
+                # If market is currently open, use current time rounded to interval
+                # If market is closed, use last market close (18:00) as the bar time
+                market_currently_open = (10 <= now_turkey.hour < 18) or (now_turkey.hour == 18 and now_turkey.minute <= 10)
+                
                 interval_mins = {"1m": 1, "2m": 2, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
                 mins = interval_mins.get(interval, 15)
-                bar_time = now_turkey.replace(second=0, microsecond=0)
-                bar_time = bar_time.replace(minute=(bar_time.minute // mins) * mins)
                 
-                # Match timezone of existing index
-                if hasattr(df.index, 'tzinfo') and df.index.tzinfo is not None:
-                    try:
-                        import pytz as pz
-                        bar_time = pz.timezone("Europe/Istanbul").localize(bar_time)
-                    except Exception:
-                        pass
+                if market_currently_open:
+                    bar_time = now_turkey.replace(second=0, microsecond=0)
+                    bar_time = bar_time.replace(minute=(bar_time.minute // mins) * mins)
+                else:
+                    # Market closed — place bar at last trading slot (18:00 or 17:45 etc)
+                    if same_day:
+                        bar_time = now_turkey.replace(hour=18, minute=0, second=0, microsecond=0)
+                    else:
+                        # Data from previous day, skip bridge
+                        bridge_status = f"stale_previous_day (age: {data_age_minutes:.0f}min)"
+                        bar_time = None
                 
-                # Estimate volume from recent bars
-                avg_vol = float(df["Volume"].tail(10).mean()) if len(df) >= 10 else 0
-                
-                synthetic = pd.DataFrame({
-                    "Open": [q_open],
-                    "High": [q_high],
-                    "Low": [q_low],
-                    "Close": [q_price],
-                    "Volume": [avg_vol],
-                }, index=pd.DatetimeIndex([bar_time], name=df.index.name))
-                
-                # Append synthetic bar
-                df = pd.concat([df, synthetic])
-                df = df[~df.index.duplicated(keep='last')]
-                df = df.sort_index()
-                bridge_status = f"bridged (age: {data_age_minutes:.0f}min, price: {q_price})"
+                if bar_time is not None:
+                    # Match timezone of existing index
+                    if hasattr(df.index, 'tzinfo') and df.index.tzinfo is not None:
+                        try:
+                            import pytz as pz
+                            bar_time = pz.timezone("Europe/Istanbul").localize(bar_time)
+                        except Exception:
+                            pass
+                    
+                    avg_vol = float(df["Volume"].tail(10).mean()) if len(df) >= 10 else 0
+                    
+                    synthetic = pd.DataFrame({
+                        "Open": [q_open],
+                        "High": [q_high],
+                        "Low": [q_low],
+                        "Close": [q_price],
+                        "Volume": [avg_vol],
+                    }, index=pd.DatetimeIndex([bar_time], name=df.index.name))
+                    
+                    df = pd.concat([df, synthetic])
+                    df = df[~df.index.duplicated(keep='last')]
+                    df = df.sort_index()
+                    
+                    mkt_str = "live" if market_currently_open else "close"
+                    bridge_status = f"✅ bridged ({mkt_str}, age:{data_age_minutes:.0f}m, ₺{q_price:.2f})"
             else:
-                bridge_status = f"quote_failed (age: {data_age_minutes:.0f}min)"
-        elif not market_open or not is_weekday:
-            bridge_status = f"market_closed (age: {data_age_minutes:.0f}min)"
+                bridge_status = f"⚠️ quote_empty (age: {data_age_minutes:.0f}min, Finnhub returned no price)"
         else:
-            bridge_status = f"fresh_enough (age: {data_age_minutes:.0f}min)"
+            if data_age_minutes <= 18:
+                bridge_status = f"✅ fresh (age: {data_age_minutes:.0f}min)"
+            elif not is_weekday:
+                bridge_status = f"weekend (age: {data_age_minutes:.0f}min)"
+            else:
+                bridge_status = f"skip (age: {data_age_minutes:.0f}min)"
     except Exception as e:
-        bridge_status = f"error: {str(e)[:80]}"
+        bridge_status = f"❌ error: {str(e)[:80]}"
     
     # Store bridge status for debugging
     if "bridge_status" not in st.session_state:
