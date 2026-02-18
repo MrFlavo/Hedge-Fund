@@ -42,6 +42,7 @@ st.set_page_config(
 # LIBRARY IMPORTS
 # =====================
 try:
+    import yfinance as yf
     import pandas as pd
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
@@ -69,7 +70,7 @@ try:
         
 except ImportError as e:
     st.error(f"⚠️ Missing libraries: {e}")
-    st.code("pip install pandas plotly numpy xgboost scikit-learn requests")
+    st.code("pip install yfinance pandas plotly numpy xgboost scikit-learn requests")
     st.stop()
 
 # =====================
@@ -393,10 +394,13 @@ def calculate_sector_relative_strength(symbol, period="5d", interval="15m"):
     clean = symbol.upper().replace(".IS", "")
     
     try:
-        # Get stock performance via Finnhub candles
-        df_stock, _ = get_data_with_db_cache(clean, period, interval)
+        # Get stock performance
+        df_stock = yf.download(f"{clean}.IS", period=period, interval=interval, progress=False)
         if df_stock is None or len(df_stock) < 10:
             return None
+        
+        if isinstance(df_stock.columns, pd.MultiIndex):
+            df_stock.columns = df_stock.columns.get_level_values(0)
         
         stock_return = (float(df_stock["Close"].iloc[-1]) - float(df_stock["Close"].iloc[0])) / float(df_stock["Close"].iloc[0]) * 100
         
@@ -404,8 +408,10 @@ def calculate_sector_relative_strength(symbol, period="5d", interval="15m"):
         peer_returns = []
         for peer in peers[:4]:  # Limit to 4 peers for speed
             try:
-                df_peer, _ = get_data_with_db_cache(peer, period, interval)
+                df_peer = yf.download(f"{peer}.IS", period=period, interval=interval, progress=False)
                 if df_peer is not None and len(df_peer) >= 10:
+                    if isinstance(df_peer.columns, pd.MultiIndex):
+                        df_peer.columns = df_peer.columns.get_level_values(0)
                     ret = (float(df_peer["Close"].iloc[-1]) - float(df_peer["Close"].iloc[0])) / float(df_peer["Close"].iloc[0]) * 100
                     peer_returns.append({"symbol": peer, "return": ret})
             except Exception:
@@ -946,101 +952,107 @@ def _pivot_points(high_val, low_val, close_val):
     return {"PP": pp, "R1": r1, "R2": r2, "R3": r3, "S1": s1, "S2": s2, "S3": s3}
 
 # =====================
-# ADVANCED DATA FETCHING — FINNHUB ONLY (no yfinance)
+# ADVANCED DATA FETCHING — HYBRID: yfinance history + Finnhub real-time bridge
 # =====================
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data_with_db_cache(symbol, period="30d", interval="15m"):
-    """Fetch OHLCV data purely from Finnhub /stock/candles.
+    """Fetch OHLCV data: yfinance for historical bars, Finnhub quote for latest price.
     
-    Finnhub provides real-time BIST data with minimal delay.
-    No yfinance dependency — single source of truth.
+    Architecture:
+    - yfinance: reliable BIST historical OHLCV (may be 1-3h delayed)
+    - Finnhub /quote: real-time price to create a fresh synthetic bar
+    - Result: full chart history + up-to-date latest bar
     """
     symbol = symbol.upper().strip().replace(".IS", "")
-    finnhub_symbol = f"IS:{symbol}"
+    yf_symbol = f"{symbol}.IS"
     
-    api_key = _get_finnhub_key()
-    if not api_key:
-        return None, symbol
-    
-    # Map period string to days
-    period_days = {"1d": 1, "5d": 5, "7d": 7, "15d": 15, "30d": 30, "60d": 60, "90d": 90}
-    days = period_days.get(period, 30)
-    
-    # Map interval to Finnhub resolution
-    interval_map = {"1m": "1", "2m": "5", "5m": "5", "15m": "15", "30m": "30", "1h": "60", "1d": "D"}
-    resolution = interval_map.get(interval, "15")
-    
-    # Finnhub free tier: max ~1 year of intraday data
-    now_ts = int(datetime.now().timestamp())
-    from_ts = now_ts - (days * 86400)
-    
+    # Fetch historical data from yfinance
     max_retries = 3
     df = None
+    last_error = ""
     
     for attempt in range(max_retries):
         try:
-            resp = requests.get(
-                f"{FINNHUB_BASE_URL}/stock/candles",
-                params={
-                    "symbol": finnhub_symbol,
-                    "resolution": resolution,
-                    "from": from_ts,
-                    "to": now_ts,
-                    "token": api_key
-                },
-                timeout=10
-            )
+            df = yf.download(yf_symbol, period=period, interval=interval, progress=False)
             
-            if resp.status_code == 429:
+            if df is not None and not df.empty and len(df) > 10:
+                break
+            else:
+                last_error = f"yfinance returned {len(df) if df is not None else 0} bars"
+                df = None
+                
+        except Exception as e:
+            last_error = f"yfinance error: {str(e)[:80]}"
+            if attempt < max_retries - 1:
                 time.sleep(RETRY_DELAY * (attempt + 1))
                 continue
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                
-                if data and data.get("s") == "ok" and data.get("c") and len(data["c"]) > 10:
-                    # Convert UTC timestamps to Turkey time
-                    try:
-                        import pytz
-                        turkey_tz = pytz.timezone("Europe/Istanbul")
-                        dt_index = pd.to_datetime(data["t"], unit="s", utc=True).tz_convert(turkey_tz)
-                        # Strip tz info for clean processing
-                        dt_index = dt_index.tz_localize(None)
-                    except ImportError:
-                        dt_index = pd.to_datetime(data["t"], unit="s") + pd.Timedelta(hours=3)
-                    
-                    df = pd.DataFrame({
-                        "Open": data["o"],
-                        "High": data["h"],
-                        "Low": data["l"],
-                        "Close": data["c"],
-                        "Volume": data["v"],
-                    }, index=dt_index)
-                    
-                    df.index.name = "Datetime"
-                    df = df[df["Close"] > 0]
-                    df = df.sort_index()
-                    df = df[~df.index.duplicated(keep='last')]
-                    
-                    # Filter to BIST market hours (10:00-18:10)
-                    if hasattr(df.index, 'hour'):
-                        hour = df.index.hour
-                        minute = df.index.minute
-                        df = df[((hour >= 10) & (hour < 18)) | ((hour == 18) & (minute <= 10))]
-                    
-                    if len(df) > 10:
-                        break
-                    else:
-                        df = None
-                        
-        except Exception:
-            if attempt < max_retries - 1:
-                time.sleep(RETRY_DELAY)
-                continue
-            return None, symbol
     
     if df is None or df.empty:
+        if "fetch_errors" not in st.session_state:
+            st.session_state.fetch_errors = {}
+        st.session_state.fetch_errors[symbol] = last_error
         return None, symbol
+    
+    # Fix MultiIndex columns
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df.columns = [c.title() for c in df.columns]
+    
+    # === FINNHUB REAL-TIME BRIDGE ===
+    # Check if yfinance data is stale, if so append a synthetic bar from Finnhub quote
+    try:
+        last_ts = df.index[-1]
+        if hasattr(last_ts, 'tz') and last_ts.tz is not None:
+            last_ts_naive = last_ts.tz_localize(None)
+        else:
+            last_ts_naive = last_ts
+        
+        try:
+            import pytz
+            turkey_tz = pytz.timezone("Europe/Istanbul")
+            now_turkey = datetime.now(turkey_tz).replace(tzinfo=None)
+        except ImportError:
+            now_turkey = datetime.utcnow() + timedelta(hours=3)
+        
+        data_age_minutes = (now_turkey - last_ts_naive).total_seconds() / 60
+        
+        # Only bridge during BIST market hours (10:00 - 18:10 Turkey time)
+        market_open = 10 <= now_turkey.hour < 18 or (now_turkey.hour == 18 and now_turkey.minute <= 10)
+        
+        if data_age_minutes > 20 and market_open:
+            quote = get_realtime_quote_finnhub(symbol)
+            if quote and quote.get("current", 0) > 0:
+                # Create synthetic bar from live quote
+                last_close = float(df["Close"].iloc[-1])
+                q_price = quote["current"]
+                q_high = max(quote.get("high", q_price), q_price)
+                q_low = min(quote.get("low", q_price), q_price)
+                q_open = quote.get("open", last_close)
+                
+                # Round to the current interval boundary
+                interval_mins = {"1m": 1, "2m": 2, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
+                mins = interval_mins.get(interval, 15)
+                bar_time = now_turkey.replace(second=0, microsecond=0)
+                bar_time = bar_time.replace(minute=(bar_time.minute // mins) * mins)
+                
+                # Match timezone awareness of existing index
+                if hasattr(df.index, 'tz') and df.index.tz is not None:
+                    import pytz as pz
+                    bar_time = pz.timezone("Europe/Istanbul").localize(bar_time)
+                
+                synthetic = pd.DataFrame({
+                    "Open": [q_open],
+                    "High": [q_high],
+                    "Low": [q_low],
+                    "Close": [q_price],
+                    "Volume": [float(df["Volume"].iloc[-5:].mean())],  # Approximate volume
+                }, index=pd.DatetimeIndex([bar_time], name=df.index.name))
+                
+                df = pd.concat([df, synthetic])
+                df = df[~df.index.duplicated(keep='last')]
+                df = df.sort_index()
+    except Exception:
+        pass  # If bridge fails, continue with yfinance data
     
     # Save to database
     if DB_AVAILABLE:
@@ -1049,20 +1061,24 @@ def get_data_with_db_cache(symbol, period="30d", interval="15m"):
             df_to_save = df.reset_index()
             df_to_save['symbol'] = symbol
             df_to_save['interval'] = interval
-            df_to_save.rename(columns={'Datetime': 'timestamp'}, inplace=True)
+            # Handle both Date and Datetime column names
+            for col_name in ['Date', 'Datetime', 'index']:
+                if col_name in df_to_save.columns:
+                    df_to_save.rename(columns={col_name: 'timestamp'}, inplace=True)
+                    break
             
-            for _, row in df_to_save.iterrows():
-                conn.execute("""
-                    INSERT OR REPLACE INTO price_data 
-                    (symbol, timestamp, open, high, low, close, volume, interval)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    row['symbol'], str(row['timestamp']), 
-                    row['Open'], row['High'], row['Low'], row['Close'],
-                    row['Volume'], row['interval']
-                ))
-            
-            conn.commit()
+            if 'timestamp' in df_to_save.columns:
+                for _, row in df_to_save.iterrows():
+                    conn.execute("""
+                        INSERT OR REPLACE INTO price_data 
+                        (symbol, timestamp, open, high, low, close, volume, interval)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        row['symbol'], str(row['timestamp']), 
+                        row['Open'], row['High'], row['Low'], row['Close'],
+                        row['Volume'], row['interval']
+                    ))
+                conn.commit()
             conn.close()
         except Exception:
             pass
@@ -1403,7 +1419,17 @@ def train_ml_model_pooled(_symbols_tuple, interval="15m", period="30d"):
     
     for sym in symbols:
         try:
-            df, _ = get_data_with_db_cache(sym, period, interval)
+            sym_clean = f"{sym}.IS" if not sym.endswith(".IS") else sym
+            raw_df = yf.download(sym_clean, period=period, interval=interval, progress=False)
+            
+            if raw_df is None or raw_df.empty or len(raw_df) < 60:
+                continue
+            
+            if isinstance(raw_df.columns, pd.MultiIndex):
+                raw_df.columns = raw_df.columns.get_level_values(0)
+            raw_df.columns = [c.title() for c in raw_df.columns]
+            
+            df = calculate_indicators(raw_df.copy())
             
             if df is None or len(df) < 60:
                 continue
@@ -2464,7 +2490,7 @@ st.markdown("""
                     NEXUS TRADE
                 </div>
                 <div style="font-family:'JetBrains Mono',monospace; font-size:0.62em; color:#3a5068; letter-spacing:0.3em; text-transform:uppercase; margin-top:-2px;">
-                    BIST Day Trading Terminal · Finnhub Real-Time
+                    BIST Day Trading Terminal · Finnhub + YF Hybrid
                 </div>
             </div>
         </div>
@@ -2521,7 +2547,7 @@ with st.sidebar:
         <div style="font-family:'JetBrains Mono',monospace; font-size:0.65em; color:#3a5068; line-height:1.8;">
             <span style="color:#5a6a7e;">INTERVAL</span> <span style="color:#00e5ff;">15m</span><br>
             <span style="color:#5a6a7e;">LOOKBACK</span> <span style="color:#00e5ff;">30d</span><br>
-            <span style="color:#5a6a7e;">DATA SRC</span> <span style="color:#00e676;">Finnhub RT</span><br>
+            <span style="color:#5a6a7e;">DATA SRC</span> <span style="color:#00e676;">YF + Finnhub RT</span><br>
             <span style="color:#5a6a7e;">ML</span> <span style="color:#00e676;">XGBoost 22F</span>
         </div>
     </div>
@@ -2704,7 +2730,10 @@ with tab_single:
             df, sym = get_data_with_db_cache(symbol_input, data_period, data_interval)
             
             if df is None:
-                st.error("❌ Data fetch failed")
+                err = st.session_state.get("fetch_errors", {}).get(symbol_input.replace(".IS",""), "Unknown")
+                st.error(f"❌ Data fetch failed for **{symbol_input}**")
+                st.caption(f"Debug: {err}")
+                st.info("💡 Check: Is the symbol correct? Is BIST market open? Try again in a few seconds.")
             else:
                 # === REAL-TIME QUOTE OVERLAY ===
                 rt_quote = get_realtime_quote(symbol_input)
@@ -3975,7 +4004,7 @@ st.markdown("""
         NEXUS TRADE — ML · MACD · BB · STOCH · S/R · PIVOTS · SECTOR RS · EARNINGS
     </div>
     <div style="font-family:'JetBrains Mono',monospace; font-size:0.55em; color:#1a2a3e; letter-spacing:0.15em; margin-top:4px;">
-        POWERED BY FINNHUB REAL-TIME API · XGBOOST POOLED ML · BIST OPTIMIZED
+        POWERED BY YFINANCE + FINNHUB REAL-TIME · XGBOOST POOLED ML · BIST OPTIMIZED
     </div>
 </div>
 """, unsafe_allow_html=True)
