@@ -2628,7 +2628,7 @@ with tab_watchlist:
     with wl_cols[1]:
         wl_auto = st.checkbox("Auto-refresh on load", value=False, key="wl_auto", help="Scan automatically (slower initial load)")
     
-    if st.button("⚡ Refresh Watchlist", type="primary", key="wl_refresh", use_container_width=True) or wl_auto:
+    if st.button("⚡ Refresh Watchlist", type="primary", key="wl_refresh", width='stretch') or wl_auto:
         watchlist = [s.strip().upper().replace(".IS", "") for s in wl_input.split(",") if s.strip()]
         
         if watchlist:
@@ -3071,7 +3071,7 @@ with tab_single:
                                   legend=dict(bgcolor='rgba(10,15,25,0.7)', bordercolor='rgba(0,229,255,0.1)', borderwidth=1))
                 fig.update_xaxes(gridcolor='rgba(0,229,255,0.04)', zerolinecolor='rgba(0,229,255,0.06)')
                 fig.update_yaxes(gridcolor='rgba(0,229,255,0.04)', zerolinecolor='rgba(0,229,255,0.06)')
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
                 
                 # === SECTOR RELATIVE STRENGTH ===
                 st.markdown("### 💪 Sector Relative Strength")
@@ -3305,7 +3305,7 @@ with tab_scanner:
     
     st.markdown("---")
     
-    if st.button("🔍 Start Smart Scan", type="primary", key="start_scan", use_container_width=True):
+    if st.button("🔍 Start Smart Scan", type="primary", key="start_scan", width='stretch'):
         start_time = time.time()
         
         # Build universe
@@ -3619,7 +3619,7 @@ with tab_portfolio:
 
         st.dataframe(
             summary_df,
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
             column_config={
                 "Stock": st.column_config.TextColumn("Stock", width="small"),
@@ -3700,7 +3700,7 @@ with tab_portfolio:
             trades_df = pd.DataFrame(trades)
             st.dataframe(
                 trades_df[['id', 'symbol', 'type', 'quantity', 'price', 'datetime', 'commission', 'total', 'notes']],
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
                 column_config={
                     "id": st.column_config.NumberColumn("ID", width="small"),
@@ -3909,7 +3909,7 @@ with tab_analytics:
             )
             fig_equity.update_yaxes(title_text="Cumulative P&L (₺)", row=1, col=1)
             fig_equity.update_yaxes(title_text="Drawdown (₺)", row=2, col=1)
-            st.plotly_chart(fig_equity, use_container_width=True)
+            st.plotly_chart(fig_equity, width='stretch')
             
             # Max drawdown stat
             max_dd = float(drawdown.min()) if len(drawdown) > 0 else 0
@@ -3954,7 +3954,7 @@ with tab_analytics:
                 margin=dict(t=20, b=40, l=80),
                 showlegend=False
             )
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width='stretch')
 
             # Stock performance table + Best/Worst
             col1, col2 = st.columns(2)
@@ -3962,7 +3962,7 @@ with tab_analytics:
             with col1:
                 st.dataframe(
                     stock_perf.sort_values('Total P&L', ascending=False),
-                    use_container_width=True,
+                    width='stretch',
                     hide_index=True,
                     column_config={
                         "Symbol": st.column_config.TextColumn("Stock"),
