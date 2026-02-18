@@ -1,6 +1,7 @@
 """
-INVESTING PRO 
+NEXUS TRADE — BIST Day Trading Terminal
 ==================================================
+Real-time data powered exclusively by Finnhub API.
 All Features:
 1. Advanced Day Trading Indicators (VWAP, MFI, Stochastic, OBV, MACD, BB)
 2. ML Score Enhancement (XGBoost with 22 features incl. candlestick patterns)
@@ -12,7 +13,7 @@ All Features:
 8. Enhanced Analytics with equity curve + drawdown chart
 9. Candlestick Pattern Detection (Hammer, Engulfing, Morning Star, etc.)
 10. Signal Grade System (A+ / A / B / C / D / F)
-11. Real-Time Data (Finnhub candle merge + yfinance)
+11. Real-Time Data (Finnhub API — single source of truth)
 12. Watchlist Dashboard with live grades & prices
 13. Support & Resistance levels + Pivot Points on chart
 14. MACD / Bollinger Bands / Stochastic visible on chart
@@ -33,15 +34,14 @@ warnings.filterwarnings('ignore')
 # =====================
 st.set_page_config(
     layout="wide",
-    page_title="INVESTING PRO",
-    page_icon="🚀"
+    page_title="NEXUS TRADE · BIST Day Trading Terminal",
+    page_icon="◈"
 )
 
 # =====================
 # LIBRARY IMPORTS
 # =====================
 try:
-    import yfinance as yf
     import pandas as pd
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
@@ -64,12 +64,12 @@ try:
     # Deep Learning (optional - disabled for faster deployment)
     LSTM_AVAILABLE = False
 
-    # HTTP requests for alternative data providers
+    # HTTP requests for Finnhub API
     import requests
         
 except ImportError as e:
     st.error(f"⚠️ Missing libraries: {e}")
-    st.code("pip install yfinance pandas plotly numpy xgboost scikit-learn tensorflow requests")
+    st.code("pip install pandas plotly numpy xgboost scikit-learn requests")
     st.stop()
 
 # =====================
@@ -157,7 +157,7 @@ DB_AVAILABLE = init_database()
 # BIST UNIVERSE DEFINITIONS - UPDATED 2026
 # =====================
 # Based on current BIST index compositions as of February 2026
-# All tickers include .IS suffix for yfinance compatibility
+# All tickers — clean symbols without .IS suffix (Finnhub uses IS: prefix)
 
 BIST30 = [
     # Banking & Finance
@@ -393,13 +393,10 @@ def calculate_sector_relative_strength(symbol, period="5d", interval="15m"):
     clean = symbol.upper().replace(".IS", "")
     
     try:
-        # Get stock performance
-        df_stock = yf.download(f"{clean}.IS", period=period, interval=interval, progress=False)
+        # Get stock performance via Finnhub candles
+        df_stock, _ = get_data_with_db_cache(clean, period, interval)
         if df_stock is None or len(df_stock) < 10:
             return None
-        
-        if isinstance(df_stock.columns, pd.MultiIndex):
-            df_stock.columns = df_stock.columns.get_level_values(0)
         
         stock_return = (float(df_stock["Close"].iloc[-1]) - float(df_stock["Close"].iloc[0])) / float(df_stock["Close"].iloc[0]) * 100
         
@@ -407,10 +404,8 @@ def calculate_sector_relative_strength(symbol, period="5d", interval="15m"):
         peer_returns = []
         for peer in peers[:4]:  # Limit to 4 peers for speed
             try:
-                df_peer = yf.download(f"{peer}.IS", period=period, interval=interval, progress=False)
+                df_peer, _ = get_data_with_db_cache(peer, period, interval)
                 if df_peer is not None and len(df_peer) >= 10:
-                    if isinstance(df_peer.columns, pd.MultiIndex):
-                        df_peer.columns = df_peer.columns.get_level_values(0)
                     ret = (float(df_peer["Close"].iloc[-1]) - float(df_peer["Close"].iloc[0])) / float(df_peer["Close"].iloc[0]) * 100
                     peer_returns.append({"symbol": peer, "return": ret})
             except Exception:
@@ -758,48 +753,11 @@ def get_realtime_quote_finnhub(symbol):
         pass
     return None
 
-@st.cache_data(ttl=60, show_spinner=False)
-def get_realtime_quote_yf(symbol):
-    """
-    Fetch latest quote using yfinance Ticker.fast_info (faster than download).
-    Returns dict with current price and metadata.
-    """
-    try:
-        clean_sym = symbol.upper().replace(".IS", "") + ".IS"
-        ticker = yf.Ticker(clean_sym)
-        info = ticker.fast_info
-        
-        if info and hasattr(info, 'last_price') and info.last_price:
-            return {
-                "current": float(info.last_price),
-                "prev_close": float(info.previous_close) if hasattr(info, 'previous_close') else 0,
-                "open": float(info.open) if hasattr(info, 'open') else 0,
-                "high": float(info.day_high) if hasattr(info, 'day_high') else 0,
-                "low": float(info.day_low) if hasattr(info, 'day_low') else 0,
-                "change": float(info.last_price - info.previous_close) if hasattr(info, 'previous_close') else 0,
-                "change_pct": float((info.last_price - info.previous_close) / info.previous_close * 100) if hasattr(info, 'previous_close') and info.previous_close > 0 else 0,
-                "timestamp": int(datetime.now().timestamp()),
-                "source": "Yahoo Finance (fast_info)"
-            }
-    except Exception:
-        pass
-    return None
-
 def get_realtime_quote(symbol):
-    """
-    Multi-provider real-time quote: tries Finnhub first, then yfinance fast_info.
-    Returns the freshest available quote.
-    """
-    # Try Finnhub first (truly real-time for supported markets)
+    """Real-time quote from Finnhub — single source of truth."""
     quote = get_realtime_quote_finnhub(symbol)
     if quote:
         return quote
-    
-    # Fallback: yfinance fast_info (usually 15-min delayed but faster than download)
-    quote = get_realtime_quote_yf(symbol)
-    if quote:
-        return quote
-    
     return None
 
 def format_data_age(df):
@@ -830,131 +788,8 @@ def format_data_age(df):
     except Exception:
         return "Unknown", "⚪", "#888888"
 
-# =====================
-# FINNHUB CANDLE DATA (OHLCV bars - the real fix for stale charts)
-# =====================
-@st.cache_data(ttl=90, show_spinner=False)
-def get_finnhub_candles(symbol, resolution="15", hours_back=6):
-    """
-    Fetch OHLCV candle bars from Finnhub to bridge the yfinance data gap.
-    
-    This is the KEY FIX: yfinance returns BIST data 1-3 hours late.
-    Finnhub /stock/candles returns fresher intraday bars with actual
-    Open/High/Low/Close/Volume — so indicators can be recalculated
-    on up-to-date data.
-    
-    resolution: '1', '5', '15', '30', '60', 'D'
-    """
-    api_key = _get_finnhub_key()
-    if not api_key:
-        return None
-    
-    # Ensure clean symbol without .IS suffix
-    clean_sym = symbol.upper().replace(".IS", "")
-    finnhub_symbol = f"IS:{clean_sym}"
-    
-    now_ts = int(datetime.now().timestamp())
-    from_ts = now_ts - (hours_back * 3600)
-    
-    try:
-        resp = requests.get(
-            f"{FINNHUB_BASE_URL}/stock/candles",
-            params={
-                "symbol": finnhub_symbol,
-                "resolution": resolution,
-                "from": from_ts,
-                "to": now_ts,
-                "token": api_key
-            },
-            timeout=8
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            
-            if data and data.get("s") == "ok" and data.get("c"):
-                # Finnhub returns UTC timestamps — convert to Turkey time (UTC+3)
-                timestamps = data["t"]
-                
-                try:
-                    import pytz
-                    turkey_tz = pytz.timezone("Europe/Istanbul")
-                    dt_index = pd.to_datetime(timestamps, unit="s", utc=True).tz_convert(turkey_tz)
-                except ImportError:
-                    # Fallback: manually add 3 hours for UTC+3
-                    dt_index = pd.to_datetime(timestamps, unit="s") + pd.Timedelta(hours=3)
-                
-                df_finnhub = pd.DataFrame({
-                    "Open": data["o"],
-                    "High": data["h"],
-                    "Low": data["l"],
-                    "Close": data["c"],
-                    "Volume": data["v"],
-                }, index=dt_index)
-                
-                df_finnhub.index.name = "Datetime"
-                
-                # Remove any rows with zero/null prices
-                df_finnhub = df_finnhub[df_finnhub["Close"] > 0]
-                
-                # Filter to BIST market hours only (10:00-18:10 Turkey time)
-                if hasattr(df_finnhub.index, 'hour'):
-                    hour = df_finnhub.index.hour
-                    df_finnhub = df_finnhub[(hour >= 10) & (hour < 19)]
-                
-                if not df_finnhub.empty:
-                    return df_finnhub
-    except Exception:
-        pass
-    
-    return None
 
-def merge_yf_and_finnhub(df_yf, df_finnhub):
-    """
-    Merge yfinance historical data with Finnhub recent candles.
-    Finnhub data takes priority for overlapping timestamps (it's fresher).
-    This ensures charts and indicators reflect the most recent bars.
-    """
-    if df_finnhub is None or df_finnhub.empty:
-        return df_yf
-    
-    if df_yf is None or df_yf.empty:
-        return df_finnhub
-    
-    try:
-        # ROBUST timezone alignment:
-        # Make both indices tz-naive to avoid any mismatch issues
-        # yfinance may return UTC or Turkey time depending on version
-        
-        yf_idx = df_yf.index
-        fh_idx = df_finnhub.index
-        
-        # Strip timezone from both to ensure clean merge
-        if hasattr(yf_idx, 'tz') and yf_idx.tz is not None:
-            df_yf = df_yf.copy()
-            df_yf.index = yf_idx.tz_localize(None)
-        
-        if hasattr(fh_idx, 'tz') and fh_idx.tz is not None:
-            df_finnhub = df_finnhub.copy()
-            df_finnhub.index = fh_idx.tz_localize(None)
-        
-        # Only keep yfinance data that's OLDER than the earliest Finnhub bar
-        earliest_finnhub = df_finnhub.index.min()
-        df_yf_old = df_yf[df_yf.index < earliest_finnhub]
-        
-        # Ensure same columns
-        common_cols = ["Open", "High", "Low", "Close", "Volume"]
-        df_yf_old = df_yf_old[[c for c in common_cols if c in df_yf_old.columns]]
-        df_finnhub_clean = df_finnhub[[c for c in common_cols if c in df_finnhub.columns]]
-        
-        # Concat: old yfinance + fresh Finnhub
-        merged = pd.concat([df_yf_old, df_finnhub_clean])
-        merged = merged.sort_index()
-        merged = merged[~merged.index.duplicated(keep='last')]  # Finnhub wins on dupes
-        
-        return merged
-    except Exception:
-        # If merge fails, return original yfinance data
-        return df_yf
+# (Old Finnhub candle + merge functions removed — now integrated into get_data_with_db_cache)
 
 # =====================
 # OPTIMIZED INDICATOR CALCULATIONS
@@ -1111,97 +946,110 @@ def _pivot_points(high_val, low_val, close_val):
     return {"PP": pp, "R1": r1, "R2": r2, "R3": r3, "S1": s1, "S2": s2, "S3": s3}
 
 # =====================
-# ADVANCED DATA FETCHING WITH CACHING + FINNHUB CANDLE MERGE
+# ADVANCED DATA FETCHING — FINNHUB ONLY (no yfinance)
 # =====================
 @st.cache_data(ttl=60, show_spinner=False)
-def get_data_with_db_cache(symbol, period, interval):
-    """Fetch data from yfinance + merge Finnhub candles for fresh chart data.
+def get_data_with_db_cache(symbol, period="30d", interval="15m"):
+    """Fetch OHLCV data purely from Finnhub /stock/candles.
     
-    KEY FIX: yfinance returns BIST data 1-3 hours late. After fetching,
-    we check data age. If stale (>20 min), we fetch recent OHLCV candles 
-    from Finnhub /stock/candles and merge them so the chart, volume, RSI, 
-    MFI — ALL indicators — reflect the latest available bars.
+    Finnhub provides real-time BIST data with minimal delay.
+    No yfinance dependency — single source of truth.
     """
-    symbol = symbol.upper().strip()
-    if len(symbol) <= 5 and not symbol.endswith(".IS"):
-        symbol += ".IS"
+    symbol = symbol.upper().strip().replace(".IS", "")
+    finnhub_symbol = f"IS:{symbol}"
     
-    # Fetch from yfinance with retry logic
+    api_key = _get_finnhub_key()
+    if not api_key:
+        return None, symbol
+    
+    # Map period string to days
+    period_days = {"1d": 1, "5d": 5, "7d": 7, "15d": 15, "30d": 30, "60d": 60, "90d": 90}
+    days = period_days.get(period, 30)
+    
+    # Map interval to Finnhub resolution
+    interval_map = {"1m": "1", "2m": "5", "5m": "5", "15m": "15", "30m": "30", "1h": "60", "1d": "D"}
+    resolution = interval_map.get(interval, "15")
+    
+    # Finnhub free tier: max ~1 year of intraday data
+    now_ts = int(datetime.now().timestamp())
+    from_ts = now_ts - (days * 86400)
+    
     max_retries = 3
     df = None
     
     for attempt in range(max_retries):
         try:
-            df = yf.download(symbol, period=period, interval=interval, progress=False)
+            resp = requests.get(
+                f"{FINNHUB_BASE_URL}/stock/candles",
+                params={
+                    "symbol": finnhub_symbol,
+                    "resolution": resolution,
+                    "from": from_ts,
+                    "to": now_ts,
+                    "token": api_key
+                },
+                timeout=10
+            )
             
-            if df is not None and not df.empty:
-                break
-                
-        except Exception as e:
-            if "rate limit" in str(e).lower() and attempt < max_retries - 1:
+            if resp.status_code == 429:
                 time.sleep(RETRY_DELAY * (attempt + 1))
                 continue
-            elif attempt == max_retries - 1:
-                return None, symbol
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                
+                if data and data.get("s") == "ok" and data.get("c") and len(data["c"]) > 10:
+                    # Convert UTC timestamps to Turkey time
+                    try:
+                        import pytz
+                        turkey_tz = pytz.timezone("Europe/Istanbul")
+                        dt_index = pd.to_datetime(data["t"], unit="s", utc=True).tz_convert(turkey_tz)
+                        # Strip tz info for clean processing
+                        dt_index = dt_index.tz_localize(None)
+                    except ImportError:
+                        dt_index = pd.to_datetime(data["t"], unit="s") + pd.Timedelta(hours=3)
+                    
+                    df = pd.DataFrame({
+                        "Open": data["o"],
+                        "High": data["h"],
+                        "Low": data["l"],
+                        "Close": data["c"],
+                        "Volume": data["v"],
+                    }, index=dt_index)
+                    
+                    df.index.name = "Datetime"
+                    df = df[df["Close"] > 0]
+                    df = df.sort_index()
+                    df = df[~df.index.duplicated(keep='last')]
+                    
+                    # Filter to BIST market hours (10:00-18:10)
+                    if hasattr(df.index, 'hour'):
+                        hour = df.index.hour
+                        minute = df.index.minute
+                        df = df[((hour >= 10) & (hour < 18)) | ((hour == 18) & (minute <= 10))]
+                    
+                    if len(df) > 10:
+                        break
+                    else:
+                        df = None
+                        
+        except Exception:
+            if attempt < max_retries - 1:
+                time.sleep(RETRY_DELAY)
+                continue
+            return None, symbol
     
     if df is None or df.empty:
         return None, symbol
     
-    # Fix MultiIndex
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    
-    df.columns = [c.title() for c in df.columns]
-    
-    # === FINNHUB CANDLE MERGE — fixes stale chart/volume/indicators ===
-    try:
-        last_ts = df.index[-1]
-        
-        # Use Turkey timezone (UTC+3) for proper age calculation
-        try:
-            import pytz
-            turkey_tz = pytz.timezone("Europe/Istanbul")
-            now_turkey = datetime.now(turkey_tz)
-            
-            if hasattr(last_ts, 'tz') and last_ts.tz is not None:
-                now = now_turkey
-            else:
-                # yfinance sometimes returns tz-naive data in Turkey time
-                now = now_turkey.replace(tzinfo=None)
-        except ImportError:
-            if hasattr(last_ts, 'tz') and last_ts.tz is not None:
-                now = datetime.now(last_ts.tz)
-            else:
-                now = datetime.now()
-        
-        data_age_minutes = (now - last_ts).total_seconds() / 60
-        
-        # If data is more than 15 minutes old, bridge the gap with Finnhub
-        if data_age_minutes > 15:
-            interval_to_resolution = {
-                "2m": "5", "5m": "5", "15m": "15", "30m": "30", "1h": "60",
-            }
-            resolution = interval_to_resolution.get(interval, "15")
-            hours_back = max(4, int(data_age_minutes / 60) + 2)
-            hours_back = min(hours_back, 48)
-            
-            # FIX: Remove .IS suffix before passing to Finnhub
-            finnhub_sym = symbol.replace(".IS", "")
-            df_finnhub = get_finnhub_candles(finnhub_sym, resolution, hours_back)
-            
-            if df_finnhub is not None and not df_finnhub.empty:
-                df = merge_yf_and_finnhub(df, df_finnhub)
-    except Exception:
-        pass  # If merge fails, continue with yfinance data only
-    
-    # Save to database (only if available)
+    # Save to database
     if DB_AVAILABLE:
         try:
             conn = sqlite3.connect(DB_PATH)
             df_to_save = df.reset_index()
             df_to_save['symbol'] = symbol
             df_to_save['interval'] = interval
-            df_to_save.rename(columns={'Date': 'timestamp', 'Datetime': 'timestamp'}, inplace=True)
+            df_to_save.rename(columns={'Datetime': 'timestamp'}, inplace=True)
             
             for _, row in df_to_save.iterrows():
                 conn.execute("""
@@ -1555,17 +1403,7 @@ def train_ml_model_pooled(_symbols_tuple, interval="15m", period="30d"):
     
     for sym in symbols:
         try:
-            sym_clean = sym if sym.endswith(".IS") else f"{sym}.IS"
-            raw_df = yf.download(sym_clean, period=period, interval=interval, progress=False)
-            
-            if raw_df is None or raw_df.empty or len(raw_df) < 60:
-                continue
-            
-            if isinstance(raw_df.columns, pd.MultiIndex):
-                raw_df.columns = raw_df.columns.get_level_values(0)
-            raw_df.columns = [c.title() for c in raw_df.columns]
-            
-            df = calculate_indicators(raw_df.copy())
+            df, _ = get_data_with_db_cache(sym, period, interval)
             
             if df is None or len(df) < 60:
                 continue
@@ -2256,7 +2094,7 @@ def match_closed_trades(trades):
 st.markdown("""
 <style>
     /* ========================================
-       INVESTING PRO — CYBERPUNK TERMINAL THEME
+       NEXUS TRADE — CYBERPUNK TERMINAL THEME
        Bloomberg meets Tron. Dark glass. Neon pulse.
        ======================================== */
     
@@ -2589,15 +2427,48 @@ st.markdown("""
 st.markdown("""
 <div class="grid-header">
     <div style="text-align:center;">
-        <div style="font-family:'Outfit',sans-serif; font-size:2.4em; font-weight:900; letter-spacing:-0.03em; 
-             background:linear-gradient(135deg, #00e5ff 0%, #00b8d4 30%, #ffffff 60%, #00e5ff 100%);
-             -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;">
-            INVESTING PRO
+        <div style="display:inline-flex; align-items:center; gap:14px;">
+            <svg width="42" height="42" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="logo_grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#00e5ff;stop-opacity:1" />
+                        <stop offset="50%" style="stop-color:#00b8d4;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#00e676;stop-opacity:1" />
+                    </linearGradient>
+                    <filter id="glow">
+                        <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                        <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                    </filter>
+                </defs>
+                <!-- Outer hexagon -->
+                <polygon points="50,5 90,27.5 90,72.5 50,95 10,72.5 10,27.5" 
+                         fill="none" stroke="url(#logo_grad)" stroke-width="2.5" filter="url(#glow)"/>
+                <!-- Inner diamond -->
+                <polygon points="50,22 72,50 50,78 28,50" 
+                         fill="none" stroke="url(#logo_grad)" stroke-width="1.8" opacity="0.7"/>
+                <!-- Center pulse dot -->
+                <circle cx="50" cy="50" r="5" fill="#00e5ff" opacity="0.9">
+                    <animate attributeName="r" values="4;7;4" dur="2s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity" values="0.9;0.5;0.9" dur="2s" repeatCount="indefinite"/>
+                </circle>
+                <!-- Cross lines -->
+                <line x1="50" y1="30" x2="50" y2="70" stroke="#00e5ff" stroke-width="1" opacity="0.3"/>
+                <line x1="30" y1="50" x2="70" y2="50" stroke="#00e5ff" stroke-width="1" opacity="0.3"/>
+                <!-- N letter hint -->
+                <path d="M38,62 L38,38 L62,62 L62,38" fill="none" stroke="url(#logo_grad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <div>
+                <div style="font-family:'Outfit',sans-serif; font-size:2.4em; font-weight:900; letter-spacing:-0.03em; 
+                     background:linear-gradient(135deg, #00e5ff 0%, #00b8d4 30%, #ffffff 60%, #00e5ff 100%);
+                     -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;">
+                    NEXUS TRADE
+                </div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:0.62em; color:#3a5068; letter-spacing:0.3em; text-transform:uppercase; margin-top:-2px;">
+                    BIST Day Trading Terminal · Finnhub Real-Time
+                </div>
+            </div>
         </div>
-        <div style="font-family:'JetBrains Mono',monospace; font-size:0.7em; color:#3a5068; letter-spacing:0.25em; text-transform:uppercase; margin-top:2px;">
-            ML · MACD · BB · S/R · Pivots · Sector RS · Earnings · Auto-Refresh
-        </div>
-        <div style="width:60px; height:2px; background:linear-gradient(90deg, transparent, #00e5ff, transparent); margin:10px auto 0;"></div>
+        <div style="width:80px; height:2px; background:linear-gradient(90deg, transparent, #00e5ff, transparent); margin:10px auto 0;"></div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2620,8 +2491,10 @@ with st.sidebar:
         <div style="font-family:'Outfit',sans-serif; font-size:1.3em; font-weight:800; letter-spacing:-0.02em;
              background:linear-gradient(135deg, #00e5ff, #00b8d4);
              -webkit-background-clip:text; -webkit-text-fill-color:transparent;">
-            INVESTING PRO
-        
+            NEXUS
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:0.6em; color:#2a3a4e; letter-spacing:0.2em; margin-top:2px;">
+            TRADE TERMINAL
         </div>
         <div style="width:40px; height:1px; background:linear-gradient(90deg, transparent, #00e5ff40, transparent); margin:8px auto;"></div>
     </div>
@@ -2648,7 +2521,7 @@ with st.sidebar:
         <div style="font-family:'JetBrains Mono',monospace; font-size:0.65em; color:#3a5068; line-height:1.8;">
             <span style="color:#5a6a7e;">INTERVAL</span> <span style="color:#00e5ff;">15m</span><br>
             <span style="color:#5a6a7e;">LOOKBACK</span> <span style="color:#00e5ff;">30d</span><br>
-            <span style="color:#5a6a7e;">DATA SRC</span> <span style="color:#00e676;">Finnhub + YF</span><br>
+            <span style="color:#5a6a7e;">DATA SRC</span> <span style="color:#00e676;">Finnhub RT</span><br>
             <span style="color:#5a6a7e;">ML</span> <span style="color:#00e676;">XGBoost 22F</span>
         </div>
     </div>
@@ -4099,10 +3972,10 @@ st.markdown("""
 <div style="text-align:center; margin-top:40px; padding:20px 0;">
     <div style="width:60px; height:1px; background:linear-gradient(90deg, transparent, #00e5ff20, transparent); margin:0 auto 12px;"></div>
     <div style="font-family:'JetBrains Mono',monospace; font-size:0.6em; color:#2a3a4e; letter-spacing:0.2em; text-transform:uppercase;">
-        INVESTING PRO — ML · MACD · BB · STOCH · S/R · PIVOTS · SECTOR RS · EARNINGS · AUTO-REFRESH
+        NEXUS TRADE — ML · MACD · BB · STOCH · S/R · PIVOTS · SECTOR RS · EARNINGS
     </div>
     <div style="font-family:'JetBrains Mono',monospace; font-size:0.55em; color:#1a2a3e; letter-spacing:0.15em; margin-top:4px;">
-        POWERED BY FINNHUB + YFINANCE · XGBOOST 22 FEATURES · BIST OPTIMIZED
+        POWERED BY FINNHUB REAL-TIME API · XGBOOST POOLED ML · BIST OPTIMIZED
     </div>
 </div>
 """, unsafe_allow_html=True)
