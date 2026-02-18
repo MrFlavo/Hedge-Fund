@@ -999,14 +999,27 @@ def get_data_with_db_cache(symbol, period="30d", interval="15m"):
     df.columns = [c.title() for c in df.columns]
     
     # === FINNHUB REAL-TIME BRIDGE ===
-    # Check if yfinance data is stale, if so append a synthetic bar from Finnhub quote
+    # yfinance BIST data is typically 1-3 hours delayed.
+    # When stale, we append a synthetic bar using Finnhub's real-time quote.
+    bridge_status = "not_attempted"
     try:
         last_ts = df.index[-1]
-        if hasattr(last_ts, 'tz') and last_ts.tz is not None:
-            last_ts_naive = last_ts.tz_localize(None)
-        else:
-            last_ts_naive = last_ts
         
+        # Convert last_ts to a naive datetime in Turkey time for comparison
+        if hasattr(last_ts, 'tzinfo') and last_ts.tzinfo is not None:
+            # It's tz-aware — convert to Turkey, then strip tz
+            try:
+                import pytz
+                turkey_tz = pytz.timezone("Europe/Istanbul")
+                last_ts_turkey = last_ts.astimezone(turkey_tz)
+                last_ts_naive = last_ts_turkey.replace(tzinfo=None)
+            except Exception:
+                last_ts_naive = last_ts.replace(tzinfo=None)
+        else:
+            # tz-naive — yfinance sometimes returns Turkey time as naive
+            last_ts_naive = pd.Timestamp(last_ts)
+        
+        # Get current Turkey time
         try:
             import pytz
             turkey_tz = pytz.timezone("Europe/Istanbul")
@@ -1016,43 +1029,62 @@ def get_data_with_db_cache(symbol, period="30d", interval="15m"):
         
         data_age_minutes = (now_turkey - last_ts_naive).total_seconds() / 60
         
-        # Only bridge during BIST market hours (10:00 - 18:10 Turkey time)
-        market_open = 10 <= now_turkey.hour < 18 or (now_turkey.hour == 18 and now_turkey.minute <= 10)
+        # BIST market hours: 10:00 - 18:10 Turkey time (continuous session)
+        market_open = (10 <= now_turkey.hour < 18) or (now_turkey.hour == 18 and now_turkey.minute <= 10)
+        # Also check if it's a weekday
+        is_weekday = now_turkey.weekday() < 5
         
-        if data_age_minutes > 20 and market_open:
+        if data_age_minutes > 18 and market_open and is_weekday:
             quote = get_realtime_quote_finnhub(symbol)
             if quote and quote.get("current", 0) > 0:
-                # Create synthetic bar from live quote
-                last_close = float(df["Close"].iloc[-1])
-                q_price = quote["current"]
-                q_high = max(quote.get("high", q_price), q_price)
-                q_low = min(quote.get("low", q_price), q_price)
-                q_open = quote.get("open", last_close)
+                q_price = float(quote["current"])
+                q_high = float(max(quote.get("high", q_price), q_price))
+                q_low = float(min(quote.get("low", q_price), q_price)) if quote.get("low", 0) > 0 else q_price
+                q_open = float(quote.get("open", q_price)) if quote.get("open", 0) > 0 else q_price
                 
-                # Round to the current interval boundary
+                # Round bar_time to current interval boundary
                 interval_mins = {"1m": 1, "2m": 2, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
                 mins = interval_mins.get(interval, 15)
                 bar_time = now_turkey.replace(second=0, microsecond=0)
                 bar_time = bar_time.replace(minute=(bar_time.minute // mins) * mins)
                 
-                # Match timezone awareness of existing index
-                if hasattr(df.index, 'tz') and df.index.tz is not None:
-                    import pytz as pz
-                    bar_time = pz.timezone("Europe/Istanbul").localize(bar_time)
+                # Match timezone of existing index
+                if hasattr(df.index, 'tzinfo') and df.index.tzinfo is not None:
+                    try:
+                        import pytz as pz
+                        bar_time = pz.timezone("Europe/Istanbul").localize(bar_time)
+                    except Exception:
+                        pass
+                
+                # Estimate volume from recent bars
+                avg_vol = float(df["Volume"].tail(10).mean()) if len(df) >= 10 else 0
                 
                 synthetic = pd.DataFrame({
                     "Open": [q_open],
                     "High": [q_high],
                     "Low": [q_low],
                     "Close": [q_price],
-                    "Volume": [float(df["Volume"].iloc[-5:].mean())],  # Approximate volume
+                    "Volume": [avg_vol],
                 }, index=pd.DatetimeIndex([bar_time], name=df.index.name))
                 
+                # Append synthetic bar
                 df = pd.concat([df, synthetic])
                 df = df[~df.index.duplicated(keep='last')]
                 df = df.sort_index()
-    except Exception:
-        pass  # If bridge fails, continue with yfinance data
+                bridge_status = f"bridged (age: {data_age_minutes:.0f}min, price: {q_price})"
+            else:
+                bridge_status = f"quote_failed (age: {data_age_minutes:.0f}min)"
+        elif not market_open or not is_weekday:
+            bridge_status = f"market_closed (age: {data_age_minutes:.0f}min)"
+        else:
+            bridge_status = f"fresh_enough (age: {data_age_minutes:.0f}min)"
+    except Exception as e:
+        bridge_status = f"error: {str(e)[:80]}"
+    
+    # Store bridge status for debugging
+    if "bridge_status" not in st.session_state:
+        st.session_state.bridge_status = {}
+    st.session_state.bridge_status[symbol] = bridge_status
     
     # Save to database
     if DB_AVAILABLE:
@@ -2748,10 +2780,14 @@ with tab_single:
                 
                 freshness_cols = st.columns([2, 2, 2])
                 with freshness_cols[0]:
+                    # Show bridge debug status
+                    bridge_info = st.session_state.get("bridge_status", {}).get(symbol_input.replace(".IS",""), "unknown")
+                    bridge_color = "#00e676" if "bridged" in bridge_info else ("#ffd600" if "fresh" in bridge_info else "#ff9100")
                     st.markdown(f"""
                         <div style="padding:8px 12px; border-radius:8px; background:rgba(0,229,255,0.08); border-left:3px solid {age_color};">
                             {age_icon} <b>Last Bar:</b> {last_bar_str}
                             <br><span style="color:#888; font-size:0.78em;">{age_str} · {total_bars} bars · {data_interval}</span>
+                            <br><span style="color:{bridge_color}; font-size:0.68em; font-family:'JetBrains Mono',monospace;">🔌 Bridge: {bridge_info}</span>
                         </div>
                     """, unsafe_allow_html=True)
                 
