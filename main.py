@@ -719,51 +719,107 @@ def _get_finnhub_key():
         key = FINNHUB_DEFAULT_KEY
     return key.strip()
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def get_realtime_quote_finnhub(symbol):
     """
-    Fetch real-time quote from Finnhub (free tier).
-    Returns dict with current price, high, low, open, prev_close, timestamp.
-    Finnhub uses exchange:SYMBOL format for BIST → use symbol without .IS
+    Fetch real-time quote from Finnhub.
+    Tries multiple symbol formats for BIST compatibility.
+    Stores debug info in session state for troubleshooting.
     """
     api_key = _get_finnhub_key()
     if not api_key:
+        _store_quote_debug(symbol, "no_api_key", {})
         return None
     
-    # Finnhub BIST symbols: prefix with 'IS:' for Istanbul Stock Exchange
     clean_sym = symbol.upper().replace(".IS", "")
-    finnhub_symbol = f"IS:{clean_sym}"
     
-    try:
-        resp = requests.get(
-            f"{FINNHUB_BASE_URL}/quote",
-            params={"symbol": finnhub_symbol, "token": api_key},
-            timeout=5
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            # Finnhub returns: c=current, h=high, l=low, o=open, pc=prevClose, t=timestamp
-            if data and data.get("c", 0) > 0:
-                return {
-                    "current": data["c"],
-                    "high": data["h"],
-                    "low": data["l"],
-                    "open": data["o"],
-                    "prev_close": data["pc"],
-                    "change": data.get("d", 0),
-                    "change_pct": data.get("dp", 0),
-                    "timestamp": data.get("t", 0),
-                    "source": "Finnhub (Real-time)"
-                }
-    except Exception:
-        pass
+    # Try multiple symbol formats — Finnhub BIST format may vary
+    symbol_formats = [
+        f"{clean_sym}.IS",       # Yahoo-style: THYAO.IS
+        f"IS:{clean_sym}",       # Exchange prefix: IS:THYAO
+        clean_sym,               # Plain: THYAO
+    ]
+    
+    for fmt in symbol_formats:
+        try:
+            resp = requests.get(
+                f"{FINNHUB_BASE_URL}/quote",
+                params={"symbol": fmt, "token": api_key},
+                timeout=5
+            )
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                
+                # Finnhub returns c=0 for unknown symbols, check for valid price
+                if data and data.get("c", 0) > 0:
+                    _store_quote_debug(symbol, f"✅ {fmt}", data)
+                    return {
+                        "current": data["c"],
+                        "high": data["h"],
+                        "low": data["l"],
+                        "open": data["o"],
+                        "prev_close": data["pc"],
+                        "change": data.get("d", 0),
+                        "change_pct": data.get("dp", 0),
+                        "timestamp": data.get("t", 0),
+                        "source": f"Finnhub ({fmt})"
+                    }
+                else:
+                    # Log what Finnhub actually returned
+                    _store_quote_debug(symbol, f"❌ {fmt} → c={data.get('c',0)}", data)
+            elif resp.status_code == 429:
+                _store_quote_debug(symbol, f"⚠️ {fmt} → 429 rate limit", {})
+                time.sleep(1)
+            elif resp.status_code == 403:
+                _store_quote_debug(symbol, f"🔒 {fmt} → 403 forbidden (key invalid?)", {})
+                break
+            else:
+                _store_quote_debug(symbol, f"❌ {fmt} → HTTP {resp.status_code}", {})
+        except Exception as e:
+            _store_quote_debug(symbol, f"❌ {fmt} → {str(e)[:50]}", {})
+    
     return None
 
+def _store_quote_debug(symbol, status, data):
+    """Store debug info for quote attempts."""
+    if "quote_debug" not in st.session_state:
+        st.session_state.quote_debug = {}
+    st.session_state.quote_debug[symbol.upper().replace(".IS","")] = {
+        "status": status,
+        "raw": str(data)[:200],
+        "time": datetime.now().strftime("%H:%M:%S")
+    }
+
 def get_realtime_quote(symbol):
-    """Real-time quote from Finnhub — single source of truth."""
+    """Real-time quote from Finnhub — with yfinance fallback."""
+    # Try Finnhub first
     quote = get_realtime_quote_finnhub(symbol)
     if quote:
         return quote
+    
+    # Fallback: yfinance fast_info
+    try:
+        clean_sym = symbol.upper().replace(".IS", "") + ".IS"
+        ticker = yf.Ticker(clean_sym)
+        info = ticker.fast_info
+        
+        if info and hasattr(info, 'last_price') and info.last_price and info.last_price > 0:
+            prev = float(info.previous_close) if hasattr(info, 'previous_close') and info.previous_close else 0
+            return {
+                "current": float(info.last_price),
+                "prev_close": prev,
+                "open": float(info.open) if hasattr(info, 'open') and info.open else 0,
+                "high": float(info.day_high) if hasattr(info, 'day_high') and info.day_high else 0,
+                "low": float(info.day_low) if hasattr(info, 'day_low') and info.day_low else 0,
+                "change": float(info.last_price - prev) if prev > 0 else 0,
+                "change_pct": float((info.last_price - prev) / prev * 100) if prev > 0 else 0,
+                "timestamp": int(datetime.now().timestamp()),
+                "source": "Yahoo Finance (fallback)"
+            }
+    except Exception:
+        pass
+    
     return None
 
 def format_data_age(df):
@@ -2836,6 +2892,25 @@ with tab_single:
                         """, unsafe_allow_html=True)
                 
                 with freshness_cols[2]:
+                    # Show Finnhub API debug info
+                    quote_dbg = st.session_state.get("quote_debug", {}).get(symbol_input.replace(".IS",""), {})
+                    if quote_dbg:
+                        dbg_status = quote_dbg.get("status", "?")
+                        dbg_raw = quote_dbg.get("raw", "")[:120]
+                        dbg_time = quote_dbg.get("time", "")
+                        st.markdown(f"""
+                            <div style="padding:8px 12px; border-radius:8px; background:rgba(128,0,255,0.06); border-left:3px solid #7c4dff;">
+                                🔍 <b>API Debug</b> <span style="color:#888; font-size:0.75em;">{dbg_time}</span>
+                                <br><span style="font-family:'JetBrains Mono',monospace; font-size:0.68em; color:#aaa;">{dbg_status}</span>
+                                <br><span style="font-family:'JetBrains Mono',monospace; font-size:0.6em; color:#555;">{dbg_raw}</span>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown("""
+                            <div style="padding:8px 12px; border-radius:8px; background:rgba(128,0,255,0.06); border-left:3px solid #7c4dff;">
+                                🔍 <b>API Debug:</b> No quote attempt yet
+                            </div>
+                        """, unsafe_allow_html=True)
                     last_bar_time = df.index[-1].strftime("%H:%M:%S") if hasattr(df.index[-1], 'strftime') else str(df.index[-1])
                     st.markdown(f"""
                         <div style="padding:8px 12px; border-radius:8px; background:rgba(255,255,255,0.04); border-left:3px solid #888;">
