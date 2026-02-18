@@ -2621,9 +2621,7 @@ with st.sidebar:
              background:linear-gradient(135deg, #00e5ff, #00b8d4);
              -webkit-background-clip:text; -webkit-text-fill-color:transparent;">
             INVESTING PRO
-        </div>
-        <div style="font-family:'JetBrains Mono',monospace; font-size:0.6em; color:#2a3a4e; letter-spacing:0.2em; margin-top:2px;">
-            TERMINAL v9.0
+        
         </div>
         <div style="width:40px; height:1px; background:linear-gradient(90deg, transparent, #00e5ff40, transparent); margin:8px auto;"></div>
     </div>
