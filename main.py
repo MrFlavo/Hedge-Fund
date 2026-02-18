@@ -1,5 +1,5 @@
 """
-PROP DESK V9.0 - FULL STACK DAY TRADING SYSTEM
+INVESTING PRO 
 ==================================================
 All Features:
 1. Advanced Day Trading Indicators (VWAP, MFI, Stochastic, OBV, MACD, BB)
@@ -33,7 +33,7 @@ warnings.filterwarnings('ignore')
 # =====================
 st.set_page_config(
     layout="wide",
-    page_title="PROP DESK V9.0 - FULL STACK DAY TRADING",
+    page_title="INVESTING PRO",
     page_icon="🚀"
 )
 
@@ -849,6 +849,7 @@ def get_finnhub_candles(symbol, resolution="15", hours_back=6):
     if not api_key:
         return None
     
+    # Ensure clean symbol without .IS suffix
     clean_sym = symbol.upper().replace(".IS", "")
     finnhub_symbol = f"IS:{clean_sym}"
     
@@ -871,18 +872,34 @@ def get_finnhub_candles(symbol, resolution="15", hours_back=6):
             data = resp.json()
             
             if data and data.get("s") == "ok" and data.get("c"):
+                # Finnhub returns UTC timestamps — convert to Turkey time (UTC+3)
+                timestamps = data["t"]
+                
+                try:
+                    import pytz
+                    turkey_tz = pytz.timezone("Europe/Istanbul")
+                    dt_index = pd.to_datetime(timestamps, unit="s", utc=True).tz_convert(turkey_tz)
+                except ImportError:
+                    # Fallback: manually add 3 hours for UTC+3
+                    dt_index = pd.to_datetime(timestamps, unit="s") + pd.Timedelta(hours=3)
+                
                 df_finnhub = pd.DataFrame({
                     "Open": data["o"],
                     "High": data["h"],
                     "Low": data["l"],
                     "Close": data["c"],
                     "Volume": data["v"],
-                }, index=pd.to_datetime(data["t"], unit="s"))
+                }, index=dt_index)
                 
                 df_finnhub.index.name = "Datetime"
                 
                 # Remove any rows with zero/null prices
                 df_finnhub = df_finnhub[df_finnhub["Close"] > 0]
+                
+                # Filter to BIST market hours only (10:00-18:10 Turkey time)
+                if hasattr(df_finnhub.index, 'hour'):
+                    hour = df_finnhub.index.hour
+                    df_finnhub = df_finnhub[(hour >= 10) & (hour < 19)]
                 
                 if not df_finnhub.empty:
                     return df_finnhub
@@ -904,18 +921,23 @@ def merge_yf_and_finnhub(df_yf, df_finnhub):
         return df_finnhub
     
     try:
-        # Align timezone awareness
-        if hasattr(df_yf.index, 'tz') and df_yf.index.tz is not None:
-            if df_finnhub.index.tz is None:
-                df_finnhub.index = df_finnhub.index.tz_localize(df_yf.index.tz)
-            else:
-                df_finnhub.index = df_finnhub.index.tz_convert(df_yf.index.tz)
-        else:
-            if df_finnhub.index.tz is not None:
-                df_finnhub.index = df_finnhub.index.tz_localize(None)
+        # ROBUST timezone alignment:
+        # Make both indices tz-naive to avoid any mismatch issues
+        # yfinance may return UTC or Turkey time depending on version
+        
+        yf_idx = df_yf.index
+        fh_idx = df_finnhub.index
+        
+        # Strip timezone from both to ensure clean merge
+        if hasattr(yf_idx, 'tz') and yf_idx.tz is not None:
+            df_yf = df_yf.copy()
+            df_yf.index = yf_idx.tz_localize(None)
+        
+        if hasattr(fh_idx, 'tz') and fh_idx.tz is not None:
+            df_finnhub = df_finnhub.copy()
+            df_finnhub.index = fh_idx.tz_localize(None)
         
         # Only keep yfinance data that's OLDER than the earliest Finnhub bar
-        # (to avoid duplicates) plus some overlap for safety
         earliest_finnhub = df_finnhub.index.min()
         df_yf_old = df_yf[df_yf.index < earliest_finnhub]
         
@@ -1091,7 +1113,7 @@ def _pivot_points(high_val, low_val, close_val):
 # =====================
 # ADVANCED DATA FETCHING WITH CACHING + FINNHUB CANDLE MERGE
 # =====================
-@st.cache_data(ttl=90, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_data_with_db_cache(symbol, period, interval):
     """Fetch data from yfinance + merge Finnhub candles for fresh chart data.
     
@@ -1134,15 +1156,28 @@ def get_data_with_db_cache(symbol, period, interval):
     # === FINNHUB CANDLE MERGE — fixes stale chart/volume/indicators ===
     try:
         last_ts = df.index[-1]
-        if hasattr(last_ts, 'tz') and last_ts.tz is not None:
-            now = datetime.now(last_ts.tz)
-        else:
-            now = datetime.now()
+        
+        # Use Turkey timezone (UTC+3) for proper age calculation
+        try:
+            import pytz
+            turkey_tz = pytz.timezone("Europe/Istanbul")
+            now_turkey = datetime.now(turkey_tz)
+            
+            if hasattr(last_ts, 'tz') and last_ts.tz is not None:
+                now = now_turkey
+            else:
+                # yfinance sometimes returns tz-naive data in Turkey time
+                now = now_turkey.replace(tzinfo=None)
+        except ImportError:
+            if hasattr(last_ts, 'tz') and last_ts.tz is not None:
+                now = datetime.now(last_ts.tz)
+            else:
+                now = datetime.now()
         
         data_age_minutes = (now - last_ts).total_seconds() / 60
         
-        # If data is more than 20 minutes old, bridge the gap with Finnhub
-        if data_age_minutes > 20:
+        # If data is more than 15 minutes old, bridge the gap with Finnhub
+        if data_age_minutes > 15:
             interval_to_resolution = {
                 "2m": "5", "5m": "5", "15m": "15", "30m": "30", "1h": "60",
             }
@@ -1150,7 +1185,9 @@ def get_data_with_db_cache(symbol, period, interval):
             hours_back = max(4, int(data_age_minutes / 60) + 2)
             hours_back = min(hours_back, 48)
             
-            df_finnhub = get_finnhub_candles(symbol, resolution, hours_back)
+            # FIX: Remove .IS suffix before passing to Finnhub
+            finnhub_sym = symbol.replace(".IS", "")
+            df_finnhub = get_finnhub_candles(finnhub_sym, resolution, hours_back)
             
             if df_finnhub is not None and not df_finnhub.empty:
                 df = merge_yf_and_finnhub(df, df_finnhub)
@@ -2219,7 +2256,7 @@ def match_closed_trades(trades):
 st.markdown("""
 <style>
     /* ========================================
-       PROP DESK V9.0 — CYBERPUNK TERMINAL THEME
+       INVESTING PRO — CYBERPUNK TERMINAL THEME
        Bloomberg meets Tron. Dark glass. Neon pulse.
        ======================================== */
     
@@ -2555,7 +2592,7 @@ st.markdown("""
         <div style="font-family:'Outfit',sans-serif; font-size:2.4em; font-weight:900; letter-spacing:-0.03em; 
              background:linear-gradient(135deg, #00e5ff 0%, #00b8d4 30%, #ffffff 60%, #00e5ff 100%);
              -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;">
-            PROP DESK V9
+            INVESTING PRO
         </div>
         <div style="font-family:'JetBrains Mono',monospace; font-size:0.7em; color:#3a5068; letter-spacing:0.25em; text-transform:uppercase; margin-top:2px;">
             ML · MACD · BB · S/R · Pivots · Sector RS · Earnings · Auto-Refresh
@@ -2583,7 +2620,7 @@ with st.sidebar:
         <div style="font-family:'Outfit',sans-serif; font-size:1.3em; font-weight:800; letter-spacing:-0.02em;
              background:linear-gradient(135deg, #00e5ff, #00b8d4);
              -webkit-background-clip:text; -webkit-text-fill-color:transparent;">
-            PROP DESK
+            INVESTING PRO
         </div>
         <div style="font-family:'JetBrains Mono',monospace; font-size:0.6em; color:#2a3a4e; letter-spacing:0.2em; margin-top:2px;">
             TERMINAL v9.0
@@ -2804,11 +2841,17 @@ with tab_single:
                 # Data freshness indicator
                 age_str, age_icon, age_color = format_data_age(df)
                 
+                # Detect if Finnhub data was merged (last bar timestamp)
+                last_bar_ts = df.index[-1]
+                last_bar_str = str(last_bar_ts).split("+")[0]  # Remove tz info for display
+                total_bars = len(df)
+                
                 freshness_cols = st.columns([2, 2, 2])
                 with freshness_cols[0]:
                     st.markdown(f"""
                         <div style="padding:8px 12px; border-radius:8px; background:rgba(0,229,255,0.08); border-left:3px solid {age_color};">
-                            {age_icon} <b>Chart Data:</b> {age_str} <span style="color:#888;">({data_interval} bars)</span>
+                            {age_icon} <b>Last Bar:</b> {last_bar_str}
+                            <br><span style="color:#888; font-size:0.78em;">{age_str} · {total_bars} bars · {data_interval}</span>
                         </div>
                     """, unsafe_allow_html=True)
                 
@@ -4058,7 +4101,7 @@ st.markdown("""
 <div style="text-align:center; margin-top:40px; padding:20px 0;">
     <div style="width:60px; height:1px; background:linear-gradient(90deg, transparent, #00e5ff20, transparent); margin:0 auto 12px;"></div>
     <div style="font-family:'JetBrains Mono',monospace; font-size:0.6em; color:#2a3a4e; letter-spacing:0.2em; text-transform:uppercase;">
-        PROP DESK V9.0 — ML · MACD · BB · STOCH · S/R · PIVOTS · SECTOR RS · EARNINGS · AUTO-REFRESH
+        INVESTING PRO — ML · MACD · BB · STOCH · S/R · PIVOTS · SECTOR RS · EARNINGS · AUTO-REFRESH
     </div>
     <div style="font-family:'JetBrains Mono',monospace; font-size:0.55em; color:#1a2a3e; letter-spacing:0.15em; margin-top:4px;">
         POWERED BY FINNHUB + YFINANCE · XGBOOST 22 FEATURES · BIST OPTIMIZED
