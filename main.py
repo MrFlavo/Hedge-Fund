@@ -1,21 +1,26 @@
 """
-PROP DESK V8.0 - ULTIMATE INTRADAY TRADING SYSTEM
+PROP DESK V9.0 - FULL STACK DAY TRADING SYSTEM
 ==================================================
-Upgrades from V7:
-1. Advanced Day Trading Indicators (VWAP, MFI, Stochastic, OBV)
+All Features:
+1. Advanced Day Trading Indicators (VWAP, MFI, Stochastic, OBV, MACD, BB)
 2. ML Score Enhancement (XGBoost with 22 features incl. candlestick patterns)
 3. Multi-Timeframe Analysis (MTF confluence)
 4. SQLite Database Integration (historical data caching)
 5. Performance Optimization (parallel processing, vectorized calculations)
 6. Portfolio Management Layer (Enhanced with stock info table & P/L tracking)
 7. Order Execution Simulation
-8. Enhanced Analytics with per-trade profit/loss visualization
+8. Enhanced Analytics with equity curve + drawdown chart
 9. Candlestick Pattern Detection (Hammer, Engulfing, Morning Star, etc.)
 10. Signal Grade System (A+ / A / B / C / D / F)
-11. Real-Time Data (Finnhub + yfinance fast_info)
+11. Real-Time Data (Finnhub candle merge + yfinance)
 12. Watchlist Dashboard with live grades & prices
+13. Support & Resistance levels + Pivot Points on chart
+14. MACD / Bollinger Bands / Stochastic visible on chart
+15. Sector Relative Strength scoring & comparison
+16. Earnings / Financial Report Calendar (stock + sector peers)
+17. Auto-Refresh (60s live reload toggle)
 
-Optimized for BIST (Borsa Istanbul) intraday trading
+Optimized for BIST (Borsa Istanbul) active day trading
 """
 
 import streamlit as st
@@ -28,7 +33,7 @@ warnings.filterwarnings('ignore')
 # =====================
 st.set_page_config(
     layout="wide",
-    page_title="PROP DESK V8.0 - ML + CANDLE PATTERNS + SIGNAL GRADES",
+    page_title="PROP DESK V9.0 - FULL STACK DAY TRADING",
     page_icon="🚀"
 )
 
@@ -336,6 +341,185 @@ BIST100 = list(set(BIST50 + [
     "OYAKC.IS",    # Oyak Çimento
     "SMRTG.IS",    # Smart Güneş
 ]))
+
+# =====================
+# SECTOR MAPPING & RELATIVE STRENGTH
+# =====================
+BIST_SECTORS = {
+    "Bankacılık": ["AKBNK", "GARAN", "ISCTR", "YKBNK", "HALKB", "VAKBN", "SKBNK", "ALBRK", "QNBFB", "TSKB"],
+    "Havacılık": ["THYAO", "PGSUS", "TAVHL", "CLEBI"],
+    "Otomotiv": ["FROTO", "TOASO", "OTKAR", "DOAS", "TTRAK", "KARSN"],
+    "Enerji": ["TUPRS", "PETKM", "AKSEN", "AKENR", "ZOREN", "ENJSA", "GWIND", "ODAS", "ASTOR"],
+    "Holding": ["KCHOL", "SAHOL", "ALARK", "TKFEN", "ENKA", "GSDHO"],
+    "Perakende": ["BIMAS", "MGROS", "SOKM", "BIZIM", "CRFSA", "MAVI"],
+    "Telekom & Teknoloji": ["TCELL", "TTKOM", "LOGO", "KRONT", "ARENA", "INDES", "NETAS", "PENTA"],
+    "Savunma": ["ASELS"],
+    "Demir & Çelik": ["EREGL", "KRDMD", "IZMDC", "BRSAN", "SARKY"],
+    "Cam & Seramik": ["SISE", "TRKCM", "ANACM"],
+    "Kimya & Petrokimya": ["SASA", "SODA", "ALKIM", "BAGFS", "CIMSA", "GUBRF"],
+    "Gıda & İçecek": ["AEFES", "ULKER", "CCOLA", "TATGD", "PNSUT", "PINSU", "BANVT"],
+    "GYO": ["EKGYO", "ISGYO", "KLGYO", "AGYO", "NUGYO", "OZGYO", "PEKGY", "VKGYO"],
+    "Madencilik": ["KOZAL"],
+    "Spor Kulüpleri": ["BJKAS", "GSRAY", "TSPOR", "FENER"],
+}
+
+def get_sector_for_symbol(symbol):
+    """Find which sector a symbol belongs to."""
+    clean = symbol.upper().replace(".IS", "")
+    for sector, members in BIST_SECTORS.items():
+        if clean in members:
+            return sector
+    return None
+
+def get_sector_peers(symbol, max_peers=5):
+    """Get peer stocks in the same sector."""
+    clean = symbol.upper().replace(".IS", "")
+    sector = get_sector_for_symbol(symbol)
+    if not sector:
+        return [], sector
+    peers = [s for s in BIST_SECTORS[sector] if s != clean][:max_peers]
+    return peers, sector
+
+@st.cache_data(ttl=300, show_spinner=False)
+def calculate_sector_relative_strength(symbol, period="5d", interval="15m"):
+    """
+    Calculate how a stock performs vs its sector peers.
+    Returns relative strength score (-100 to +100) and details.
+    """
+    peers, sector = get_sector_peers(symbol)
+    if not peers or not sector:
+        return None
+    
+    clean = symbol.upper().replace(".IS", "")
+    
+    try:
+        # Get stock performance
+        df_stock = yf.download(f"{clean}.IS", period=period, interval=interval, progress=False)
+        if df_stock is None or len(df_stock) < 10:
+            return None
+        
+        if isinstance(df_stock.columns, pd.MultiIndex):
+            df_stock.columns = df_stock.columns.get_level_values(0)
+        
+        stock_return = (float(df_stock["Close"].iloc[-1]) - float(df_stock["Close"].iloc[0])) / float(df_stock["Close"].iloc[0]) * 100
+        
+        # Get peer performances
+        peer_returns = []
+        for peer in peers[:4]:  # Limit to 4 peers for speed
+            try:
+                df_peer = yf.download(f"{peer}.IS", period=period, interval=interval, progress=False)
+                if df_peer is not None and len(df_peer) >= 10:
+                    if isinstance(df_peer.columns, pd.MultiIndex):
+                        df_peer.columns = df_peer.columns.get_level_values(0)
+                    ret = (float(df_peer["Close"].iloc[-1]) - float(df_peer["Close"].iloc[0])) / float(df_peer["Close"].iloc[0]) * 100
+                    peer_returns.append({"symbol": peer, "return": ret})
+            except Exception:
+                pass
+            time.sleep(0.3)
+        
+        if not peer_returns:
+            return None
+        
+        sector_avg = np.mean([p["return"] for p in peer_returns])
+        relative_strength = stock_return - sector_avg
+        
+        # Normalize to -100 to +100 scale
+        rs_score = max(-100, min(100, relative_strength * 10))
+        
+        return {
+            "sector": sector,
+            "stock_return": stock_return,
+            "sector_avg": sector_avg,
+            "relative_strength": relative_strength,
+            "rs_score": rs_score,
+            "peers": peer_returns
+        }
+    except Exception:
+        return None
+
+# =====================
+# EARNINGS CALENDAR (Financial Report Dates)
+# =====================
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_earnings_calendar(symbol):
+    """
+    Fetch upcoming and recent earnings/financial report dates for a BIST stock.
+    Uses yfinance calendar data.
+    """
+    clean = symbol.upper().replace(".IS", "")
+    try:
+        ticker = yf.Ticker(f"{clean}.IS")
+        cal = ticker.calendar
+        
+        if cal is not None and not (isinstance(cal, pd.DataFrame) and cal.empty):
+            # yfinance returns a dict or DataFrame
+            if isinstance(cal, dict):
+                return {
+                    "earnings_date": cal.get("Earnings Date", []),
+                    "revenue_estimate": cal.get("Revenue Average", None),
+                    "eps_estimate": cal.get("EPS Average", None),
+                    "source": "yfinance"
+                }
+            elif isinstance(cal, pd.DataFrame) and not cal.empty:
+                earnings_dates = []
+                for col in cal.columns:
+                    if "Earnings" in str(col) or "earnings" in str(col):
+                        earnings_dates.append(str(cal[col].iloc[0]))
+                return {
+                    "earnings_date": earnings_dates if earnings_dates else [str(cal.columns[0])],
+                    "source": "yfinance"
+                }
+    except Exception:
+        pass
+    
+    return None
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_sector_earnings_calendar(symbol):
+    """
+    Get earnings dates for all stocks in the same sector.
+    Returns list of upcoming earnings sorted by date.
+    """
+    peers, sector = get_sector_peers(symbol, max_peers=10)
+    if not sector:
+        return None, None
+    
+    clean = symbol.upper().replace(".IS", "")
+    all_stocks = [clean] + peers
+    
+    earnings_list = []
+    for stock in all_stocks:
+        try:
+            ticker = yf.Ticker(f"{stock}.IS")
+            cal = ticker.calendar
+            
+            if cal is not None:
+                dates = []
+                if isinstance(cal, dict):
+                    dates = cal.get("Earnings Date", [])
+                elif isinstance(cal, pd.DataFrame) and not cal.empty:
+                    for col in cal.columns:
+                        dates.append(str(col))
+                
+                for d in dates:
+                    try:
+                        dt = pd.to_datetime(d)
+                        earnings_list.append({
+                            "symbol": stock,
+                            "date": dt,
+                            "date_str": dt.strftime("%Y-%m-%d"),
+                            "is_target": stock == clean
+                        })
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        time.sleep(0.2)
+    
+    # Sort by date
+    earnings_list.sort(key=lambda x: x["date"])
+    
+    return earnings_list, sector
 
 # =====================
 # RATE LIMITING CONFIGURATION
@@ -681,6 +865,59 @@ def _adx_vectorized(high, low, close, length=14):
     
     return adx, plus_di, minus_di
 
+def _macd_vectorized(close, fast=12, slow=26, signal=9):
+    """MACD Line, Signal Line, Histogram"""
+    ema_fast = close.ewm(span=fast, adjust=False).mean()
+    ema_slow = close.ewm(span=slow, adjust=False).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram
+
+def _support_resistance_levels(high, low, close, window=20, num_levels=3):
+    """
+    Detect Support and Resistance levels using pivot point clustering.
+    Returns lists of support and resistance price levels.
+    """
+    supports = []
+    resistances = []
+    
+    if len(close) < window * 2:
+        return supports, resistances
+    
+    for i in range(window, len(close) - window):
+        if low.iloc[i] == low.iloc[i-window:i+window+1].min():
+            supports.append(float(low.iloc[i]))
+        if high.iloc[i] == high.iloc[i-window:i+window+1].max():
+            resistances.append(float(high.iloc[i]))
+    
+    def cluster_levels(levels, threshold_pct=0.005):
+        if not levels:
+            return []
+        levels_sorted = sorted(levels)
+        clusters = [[levels_sorted[0]]]
+        for lvl in levels_sorted[1:]:
+            if (lvl - clusters[-1][-1]) / clusters[-1][-1] < threshold_pct:
+                clusters[-1].append(lvl)
+            else:
+                clusters.append([lvl])
+        cluster_means = [(np.mean(c), len(c)) for c in clusters]
+        cluster_means.sort(key=lambda x: x[1], reverse=True)
+        return [c[0] for c in cluster_means[:num_levels]]
+    
+    return cluster_levels(supports), cluster_levels(resistances)
+
+def _pivot_points(high_val, low_val, close_val):
+    """Classic Pivot Points for intraday trading."""
+    pp = (high_val + low_val + close_val) / 3
+    r1 = 2 * pp - low_val
+    s1 = 2 * pp - high_val
+    r2 = pp + (high_val - low_val)
+    s2 = pp - (high_val - low_val)
+    r3 = high_val + 2 * (pp - low_val)
+    s3 = low_val - 2 * (high_val - pp)
+    return {"PP": pp, "R1": r1, "R2": r2, "R3": r3, "S1": s1, "S2": s2, "S3": s3}
+
 # =====================
 # ADVANCED DATA FETCHING WITH CACHING + FINNHUB CANDLE MERGE
 # =====================
@@ -830,7 +1067,11 @@ def calculate_indicators(df):
     bb_std = df["Close"].rolling(20).std()
     df["BB_UPPER"] = df["SMA20"] + (2 * bb_std)
     df["BB_LOWER"] = df["SMA20"] - (2 * bb_std)
+    df["BB_MID"] = df["SMA20"]
     df["BB_WIDTH"] = (df["BB_UPPER"] - df["BB_LOWER"]) / df["SMA20"] * 100
+    
+    # MACD
+    df["MACD"], df["MACD_SIGNAL"], df["MACD_HIST"] = _macd_vectorized(df["Close"])
     
     return df.dropna()
 
@@ -1231,12 +1472,14 @@ def get_signal_grade(score, ml_prob, confluence, candle_patterns):
 # =====================
 # ENHANCED SCORING ALGORITHM
 # =====================
-def calculate_advanced_score(df, symbol, mtf_data=None, ml_model=None):
+def calculate_advanced_score(df, symbol, mtf_data=None, ml_model=None, sector_rs=None):
     """
     Enhanced scoring with:
     - Day trading specific indicators (VWAP, MFI, Stochastic)
     - Multi-timeframe confluence
     - ML probability enhancement
+    - Candlestick patterns
+    - Sector relative strength
     """
     if df is None or len(df) < 50:
         return None
@@ -1404,6 +1647,21 @@ def calculate_advanced_score(df, symbol, mtf_data=None, ml_model=None):
         sign = "+" if pattern_pts >= 0 else ""
         reasons.append(f"{pattern_name} {pattern_desc} ({sign}{pattern_pts} pts)")
     
+    # === SECTOR RELATIVE STRENGTH (±10 points) ===
+    sector_data = None
+    if sector_rs:
+        sector_data = sector_rs
+        rs = sector_rs.get("relative_strength", 0)
+        if rs > 2:
+            score += 10
+            reasons.append(f"🏆 Sector RS: +{rs:.1f}% vs {sector_rs['sector']} avg (outperforming)")
+        elif rs > 0.5:
+            score += 5
+            reasons.append(f"📊 Sector RS: +{rs:.1f}% vs {sector_rs['sector']} (slightly above)")
+        elif rs < -2:
+            score -= 8
+            reasons.append(f"⚠️ Sector RS: {rs:.1f}% vs {sector_rs['sector']} (underperforming)")
+    
     # === RISK/REWARD SETUP ===
     price = float(last["Close"])
     atr = float(last["ATR"])
@@ -1439,7 +1697,8 @@ def calculate_advanced_score(df, symbol, mtf_data=None, ml_model=None):
         "vwap_dist": vwap_position,
         "adx": adx,
         "ml_prob": ml_prob,
-        "mtf_confluence": confluence
+        "mtf_confluence": confluence,
+        "sector_rs": sector_data
     }
 
 # =====================
@@ -1608,14 +1867,53 @@ st.markdown("""
 # =====================
 # MAIN APPLICATION
 # =====================
-st.title("🚀 PROP DESK V8.0 - ML ENHANCED INTRADAY SYSTEM")
-st.caption("Advanced day trading with VWAP, MFI, Multi-Timeframe, ML Score, Candlestick Patterns & Real-Time Data")
+st.title("🚀 PROP DESK V9.0 - FULL STACK DAY TRADING")
+st.caption("ML + MACD/BB/Stoch + S/R & Pivots + Candlestick Patterns + Sector RS + Earnings Calendar + Auto-Refresh")
 
 # =====================
 # HARDCODED DATA SETTINGS (no sidebar clutter)
 # =====================
 data_interval = "15m"
 data_period = "30d"
+
+# =====================
+# AUTO-REFRESH (60 seconds)
+# =====================
+# Streamlit auto-rerun using st.fragment or manual timer
+REFRESH_INTERVAL = 60  # seconds
+
+# Sidebar: minimal - just auto-refresh toggle
+with st.sidebar:
+    st.markdown("### ⚙️ Settings")
+    auto_refresh = st.toggle("⏱️ Auto-refresh (60s)", value=False, key="auto_refresh_toggle",
+                              help="Automatically reload data every 60 seconds during market hours")
+    
+    if auto_refresh:
+        # Check if market is likely open (BIST: 10:00-18:10 Turkey time, UTC+3)
+        now_hour = datetime.now().hour  # Server time
+        st.caption(f"🔄 Auto-refresh active | Next in ~60s")
+        st.caption(f"Server time: {datetime.now().strftime('%H:%M:%S')}")
+        
+        # Use Streamlit's built-in rerun with a timer
+        import threading
+        if "refresh_counter" not in st.session_state:
+            st.session_state.refresh_counter = 0
+        st.session_state.refresh_counter += 1
+        
+        # Trigger rerun after interval
+        time.sleep(0.1)  # Small delay to prevent instant loop
+        # st.rerun triggers at the script level — we use fragment approach instead
+    
+    st.markdown("---")
+    st.caption("📊 Interval: 15m | Lookback: 30d")
+    st.caption("⚡ Data: Finnhub + yfinance")
+
+# Auto-refresh implementation via HTML meta tag
+if auto_refresh:
+    st.markdown(
+        f'<meta http-equiv="refresh" content="{REFRESH_INTERVAL}">',
+        unsafe_allow_html=True
+    )
 
 tab_watchlist, tab_single, tab_scanner, tab_portfolio, tab_analytics = st.tabs([
     "🔥 Watchlist Dashboard",
@@ -1913,20 +2211,20 @@ with tab_single:
                         </div>
                     """, unsafe_allow_html=True)
                 
-                # Chart with VWAP
+                # Chart with VWAP + BB + MACD + Stochastic + S/R + Pivots
                 st.markdown("### 📊 Advanced Chart")
                 
                 fig = make_subplots(
-                    rows=3, cols=1,
+                    rows=5, cols=1,
                     shared_xaxes=True,
-                    vertical_spacing=0.05,
-                    row_heights=[0.6, 0.2, 0.2],
-                    subplot_titles=('Price & VWAP', 'RSI & MFI', 'Volume')
+                    vertical_spacing=0.03,
+                    row_heights=[0.40, 0.15, 0.15, 0.15, 0.15],
+                    subplot_titles=('Price / VWAP / BB / S&R', 'RSI & MFI', 'MACD', 'Stochastic', 'Volume')
                 )
                 
                 tail = df.tail(150)
                 
-                # Candlesticks
+                # Row 1: Candlesticks
                 fig.add_trace(go.Candlestick(
                     x=tail.index, open=tail["Open"], high=tail["High"],
                     low=tail["Low"], close=tail["Close"], name="Price"
@@ -1939,38 +2237,167 @@ with tab_single:
                         mode="lines", name="VWAP", line=dict(color="cyan", width=2)
                     ), row=1, col=1)
                 
+                # Bollinger Bands (shaded)
+                if "BB_UPPER" in tail.columns:
+                    fig.add_trace(go.Scatter(
+                        x=tail.index, y=tail["BB_UPPER"], name="BB Upper",
+                        line=dict(color="rgba(255,255,255,0.2)", width=1, dash="dot")
+                    ), row=1, col=1)
+                    fig.add_trace(go.Scatter(
+                        x=tail.index, y=tail["BB_LOWER"], name="BB Lower",
+                        line=dict(color="rgba(255,255,255,0.2)", width=1, dash="dot"),
+                        fill='tonexty', fillcolor='rgba(173,216,230,0.06)'
+                    ), row=1, col=1)
+                
                 # EMAs
-                fig.add_trace(go.Scatter(x=tail.index, y=tail["EMA20"], name="EMA20", line=dict(color="orange")), row=1, col=1)
-                fig.add_trace(go.Scatter(x=tail.index, y=tail["EMA50"], name="EMA50", line=dict(color="blue")), row=1, col=1)
+                fig.add_trace(go.Scatter(x=tail.index, y=tail["EMA20"], name="EMA20", line=dict(color="orange", width=1)), row=1, col=1)
+                fig.add_trace(go.Scatter(x=tail.index, y=tail["EMA50"], name="EMA50", line=dict(color="blue", width=1)), row=1, col=1)
+                
+                # Support / Resistance levels
+                supports, resistances = _support_resistance_levels(df["High"], df["Low"], df["Close"])
+                for s_lvl in supports:
+                    fig.add_hline(y=s_lvl, line_dash="dash", line_color="rgba(0,200,83,0.5)", 
+                                  annotation_text=f"S ₺{s_lvl:.2f}", annotation_position="bottom left",
+                                  annotation_font_size=9, annotation_font_color="rgba(0,200,83,0.7)", row=1, col=1)
+                for r_lvl in resistances:
+                    fig.add_hline(y=r_lvl, line_dash="dash", line_color="rgba(213,0,0,0.5)",
+                                  annotation_text=f"R ₺{r_lvl:.2f}", annotation_position="top left",
+                                  annotation_font_size=9, annotation_font_color="rgba(213,0,0,0.7)", row=1, col=1)
+                
+                # Pivot Points (from daily high/low/close)
+                daily_high = float(df["High"].tail(96).max())  # ~1 day of 15m bars
+                daily_low = float(df["Low"].tail(96).min())
+                daily_close = float(df["Close"].iloc[-1])
+                pivots = _pivot_points(daily_high, daily_low, daily_close)
+                
+                pivot_colors = {"PP": "#ffffff", "R1": "#ff6b6b", "R2": "#ff3333", "R3": "#cc0000",
+                                "S1": "#69db7c", "S2": "#40c057", "S3": "#2b8a3e"}
+                for pname, plevel in pivots.items():
+                    if tail["Low"].min() * 0.98 < plevel < tail["High"].max() * 1.02:
+                        fig.add_hline(y=plevel, line_dash="dot", line_color=pivot_colors.get(pname, "gray"),
+                                      line_width=1, annotation_text=pname, annotation_position="right",
+                                      annotation_font_size=8, annotation_font_color=pivot_colors.get(pname, "gray"),
+                                      row=1, col=1)
                 
                 # Stop/Target lines
-                fig.add_hline(y=result["stop"], line_dash="dash", line_color="red", row=1, col=1)
-                fig.add_hline(y=result["target"], line_dash="solid", line_color="green", row=1, col=1)
+                fig.add_hline(y=result["stop"], line_dash="dash", line_color="red", 
+                              annotation_text=f"Stop ₺{result['stop']:.2f}", annotation_font_size=10, row=1, col=1)
+                fig.add_hline(y=result["target"], line_dash="solid", line_color="green",
+                              annotation_text=f"TP ₺{result['target']:.2f}", annotation_font_size=10, row=1, col=1)
                 
-                # Real-time price line (if available)
+                # Live price line
                 if rt_quote:
                     fig.add_hline(
                         y=rt_quote["current"], line_dash="dot", line_color="cyan", 
                         annotation_text=f"⚡ Live: ₺{rt_quote['current']:.2f}", 
-                        annotation_position="top right",
-                        annotation_font_color="cyan",
+                        annotation_position="top right", annotation_font_color="cyan",
                         row=1, col=1
                     )
                 
-                # RSI & MFI
+                # Row 2: RSI & MFI
                 fig.add_trace(go.Scatter(x=tail.index, y=tail["RSI"], name="RSI", line=dict(color="purple")), row=2, col=1)
                 if "MFI" in tail.columns:
                     fig.add_trace(go.Scatter(x=tail.index, y=tail["MFI"], name="MFI", line=dict(color="gold")), row=2, col=1)
-                
                 fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
                 fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
                 
-                # Volume
-                colors = ['green' if tail["Close"].iloc[i] >= tail["Open"].iloc[i] else 'red' for i in range(len(tail))]
-                fig.add_trace(go.Bar(x=tail.index, y=tail["Volume"], name="Volume", marker_color=colors), row=3, col=1)
+                # Row 3: MACD
+                if "MACD" in tail.columns:
+                    fig.add_trace(go.Scatter(x=tail.index, y=tail["MACD"], name="MACD", line=dict(color="#00e5ff", width=1.5)), row=3, col=1)
+                    fig.add_trace(go.Scatter(x=tail.index, y=tail["MACD_SIGNAL"], name="Signal", line=dict(color="#ff6d00", width=1.5)), row=3, col=1)
+                    macd_colors = ['#00c853' if v >= 0 else '#d50000' for v in tail["MACD_HIST"]]
+                    fig.add_trace(go.Bar(x=tail.index, y=tail["MACD_HIST"], name="MACD Hist", marker_color=macd_colors), row=3, col=1)
+                    fig.add_hline(y=0, line_dash="dash", line_color="gray", row=3, col=1)
                 
-                fig.update_layout(height=800, template="plotly_dark", showlegend=True, xaxis_rangeslider_visible=False)
+                # Row 4: Stochastic
+                fig.add_trace(go.Scatter(x=tail.index, y=tail["STOCH_K"], name="%K", line=dict(color="#00e5ff")), row=4, col=1)
+                fig.add_trace(go.Scatter(x=tail.index, y=tail["STOCH_D"], name="%D", line=dict(color="#ff6d00")), row=4, col=1)
+                fig.add_hline(y=80, line_dash="dash", line_color="red", row=4, col=1)
+                fig.add_hline(y=20, line_dash="dash", line_color="green", row=4, col=1)
+                
+                # Row 5: Volume
+                colors = ['green' if tail["Close"].iloc[i] >= tail["Open"].iloc[i] else 'red' for i in range(len(tail))]
+                fig.add_trace(go.Bar(x=tail.index, y=tail["Volume"], name="Volume", marker_color=colors), row=5, col=1)
+                if "VOL_MA20" in tail.columns:
+                    fig.add_trace(go.Scatter(x=tail.index, y=tail["VOL_MA20"], name="Vol MA20", line=dict(color="yellow", width=1)), row=5, col=1)
+                
+                fig.update_layout(height=1100, template="plotly_dark", showlegend=True, 
+                                  xaxis_rangeslider_visible=False, hovermode='x unified',
+                                  margin=dict(t=30, b=30))
                 st.plotly_chart(fig, use_container_width=True)
+                
+                # === SECTOR RELATIVE STRENGTH ===
+                st.markdown("### 💪 Sector Relative Strength")
+                with st.spinner("Calculating sector strength..."):
+                    sector_rs_data = calculate_sector_relative_strength(symbol_input)
+                
+                if sector_rs_data:
+                    rs_cols = st.columns([1, 1, 2])
+                    
+                    with rs_cols[0]:
+                        rs_color = "#00c853" if sector_rs_data["relative_strength"] > 0 else "#d50000"
+                        rs_sign = "+" if sector_rs_data["relative_strength"] > 0 else ""
+                        st.markdown(f"""
+                            <div class="metric-card">
+                                <div style="font-size:0.8em; color:#aaa;">📊 {sector_rs_data['sector']}</div>
+                                <div style="font-size:1.8em; font-weight:800; color:{rs_color};">
+                                    {rs_sign}{sector_rs_data['relative_strength']:.2f}%
+                                </div>
+                                <div style="font-size:0.8em; color:#aaa;">vs sector average</div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with rs_cols[1]:
+                        st.metric(f"{symbol_input} Return", f"{sector_rs_data['stock_return']:.2f}%")
+                        st.metric(f"Sector Avg", f"{sector_rs_data['sector_avg']:.2f}%")
+                    
+                    with rs_cols[2]:
+                        st.markdown("**Peer Comparison (5-day)**")
+                        for peer in sector_rs_data["peers"]:
+                            p_color = "#00c853" if peer["return"] > 0 else "#d50000"
+                            p_sign = "+" if peer["return"] > 0 else ""
+                            st.markdown(f"• **{peer['symbol']}**: <span style='color:{p_color}'>{p_sign}{peer['return']:.2f}%</span>", unsafe_allow_html=True)
+                else:
+                    st.caption("Sector data not available for this stock")
+                
+                # === EARNINGS CALENDAR ===
+                st.markdown("### 📅 Earnings / Financial Report Calendar")
+                with st.spinner("Fetching earnings dates..."):
+                    earnings_list, earn_sector = get_sector_earnings_calendar(symbol_input)
+                
+                if earnings_list:
+                    now_dt = datetime.now()
+                    upcoming = [e for e in earnings_list if e["date"] > now_dt]
+                    recent = [e for e in earnings_list if e["date"] <= now_dt][-5:]  # Last 5
+                    
+                    earn_cols = st.columns(2)
+                    
+                    with earn_cols[0]:
+                        st.markdown(f"**📅 Upcoming — {earn_sector} Sector**")
+                        if upcoming:
+                            for e in upcoming[:8]:
+                                icon = "🔴" if e["is_target"] else "⚪"
+                                bold = "font-weight:800;" if e["is_target"] else ""
+                                days_until = (e["date"] - now_dt).days
+                                st.markdown(f"""
+                                    <div style="padding:4px 8px; {bold}">
+                                        {icon} <b>{e['symbol']}</b> — {e['date_str']} 
+                                        <span style="color:#ffd600;">({days_until}d away)</span>
+                                    </div>
+                                """, unsafe_allow_html=True)
+                        else:
+                            st.caption("No upcoming earnings dates found")
+                    
+                    with earn_cols[1]:
+                        st.markdown("**🕒 Recent Earnings**")
+                        if recent:
+                            for e in reversed(recent):
+                                icon = "🔴" if e["is_target"] else "⚪"
+                                st.markdown(f"{icon} **{e['symbol']}** — {e['date_str']}")
+                        else:
+                            st.caption("No recent earnings data")
+                else:
+                    st.caption("💡 Earnings calendar data not available — yfinance may not cover all BIST stocks")
 
 # =====================
 # TAB 2: ML SCANNER
@@ -2559,52 +2986,80 @@ with tab_analytics:
 
             st.markdown("---")
 
-            # ── Equity Curve ──
+            # ── Equity Curve (Enhanced with time axis + drawdown) ──
             st.markdown("### 📊 Equity Curve")
 
             closed_df_sorted = closed_df.sort_values('Sell Date')
             closed_df_sorted['Cumulative P&L'] = closed_df_sorted['P&L (TL)'].cumsum()
             closed_df_sorted['Trade #'] = range(1, len(closed_df_sorted) + 1)
+            
+            # Calculate drawdown
+            cumulative = closed_df_sorted['Cumulative P&L']
+            running_max = cumulative.cummax()
+            drawdown = cumulative - running_max
 
-            fig_equity = go.Figure()
+            fig_equity = make_subplots(
+                rows=2, cols=1, shared_xaxes=True,
+                vertical_spacing=0.08, row_heights=[0.7, 0.3],
+                subplot_titles=('Cumulative P&L', 'Drawdown')
+            )
             
             # Color markers by profit/loss
             colors_eq = ['#00c853' if p >= 0 else '#d50000' for p in closed_df_sorted['P&L (TL)']]
 
+            # P&L Line
             fig_equity.add_trace(go.Scatter(
-                x=closed_df_sorted['Trade #'],
+                x=closed_df_sorted['Sell Date'],
                 y=closed_df_sorted['Cumulative P&L'],
                 mode='lines+markers',
                 name='Cumulative P&L',
                 line=dict(color='#00e5ff', width=2.5),
-                marker=dict(size=10, color=colors_eq, line=dict(width=1, color='white')),
+                marker=dict(size=8, color=colors_eq, line=dict(width=1, color='white')),
                 text=closed_df_sorted['Symbol'],
-                hovertemplate='<b>%{text}</b><br>Trade #%{x}<br>Cumulative: ₺%{y:,.2f}<extra></extra>'
-            ))
+                hovertemplate='<b>%{text}</b><br>%{x}<br>Cumulative: ₺%{y:,.2f}<extra></extra>'
+            ), row=1, col=1)
             
-            fig_equity.add_hline(y=0, line_dash="dash", line_color="gray", annotation_text="Break Even")
+            fig_equity.add_hline(y=0, line_dash="dash", line_color="gray", annotation_text="Break Even", row=1, col=1)
 
             # Fill area under curve
             fig_equity.add_trace(go.Scatter(
-                x=closed_df_sorted['Trade #'],
+                x=closed_df_sorted['Sell Date'],
                 y=closed_df_sorted['Cumulative P&L'],
                 fill='tozeroy',
                 fillcolor='rgba(0, 229, 255, 0.08)',
-                line=dict(width=0),
-                showlegend=False,
-                hoverinfo='skip'
-            ))
+                line=dict(width=0), showlegend=False, hoverinfo='skip'
+            ), row=1, col=1)
+            
+            # Drawdown area
+            fig_equity.add_trace(go.Scatter(
+                x=closed_df_sorted['Sell Date'],
+                y=drawdown,
+                fill='tozeroy',
+                fillcolor='rgba(213, 0, 0, 0.15)',
+                line=dict(color='#d50000', width=1.5),
+                name='Drawdown',
+                hovertemplate='Drawdown: ₺%{y:,.2f}<extra></extra>'
+            ), row=2, col=1)
+            fig_equity.add_hline(y=0, line_dash="dash", line_color="gray", row=2, col=1)
 
             fig_equity.update_layout(
-                height=400,
-                template="plotly_dark",
-                xaxis_title="Trade Number",
-                yaxis_title="Cumulative P&L (₺)",
-                showlegend=True,
-                hovermode='x unified',
-                margin=dict(t=20, b=40)
+                height=550, template="plotly_dark",
+                showlegend=True, hovermode='x unified',
+                margin=dict(t=30, b=40)
             )
+            fig_equity.update_yaxes(title_text="Cumulative P&L (₺)", row=1, col=1)
+            fig_equity.update_yaxes(title_text="Drawdown (₺)", row=2, col=1)
             st.plotly_chart(fig_equity, use_container_width=True)
+            
+            # Max drawdown stat
+            max_dd = float(drawdown.min()) if len(drawdown) > 0 else 0
+            st.markdown(f"""
+                <div class="pnl-card pnl-card-info" style="text-align:center;">
+                    📉 <b>Max Drawdown:</b> ₺{max_dd:,.2f} | 
+                    🏔️ <b>Peak P&L:</b> ₺{float(running_max.max()):,.2f} |
+                    📊 <b>Recovery:</b> {'✅ Recovered' if float(cumulative.iloc[-1]) >= float(running_max.max()) * 0.95 else '⏳ In drawdown'}
+                </div>
+            """, unsafe_allow_html=True)
 
             st.markdown("---")
 
@@ -2719,4 +3174,4 @@ with tab_analytics:
             """)
 
 st.markdown("---")
-st.caption("🚀 PROP DESK V8.0 | ML + Candlestick Patterns + Signal Grades + Real-Time Data (Finnhub + yfinance)")
+st.caption("🚀 PROP DESK V9.0 | ML + Candlestick Patterns + Signal Grades + S/R & Pivots + MACD/BB/Stoch + Sector RS + Earnings Calendar + Auto-Refresh")
