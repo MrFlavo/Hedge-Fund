@@ -740,6 +740,8 @@ def get_realtime_quote_finnhub(symbol):
         clean_sym,               # Plain: THYAO
     ]
     
+    all_attempts = []
+    
     for fmt in symbol_formats:
         try:
             resp = requests.get(
@@ -748,12 +750,13 @@ def get_realtime_quote_finnhub(symbol):
                 timeout=5
             )
             
-            if resp.status_code == 200:
+            status_code = resp.status_code
+            
+            if status_code == 200:
                 data = resp.json()
                 
-                # Finnhub returns c=0 for unknown symbols, check for valid price
                 if data and data.get("c", 0) > 0:
-                    _store_quote_debug(symbol, f"✅ {fmt}", data)
+                    _store_quote_debug(symbol, f"✅ {fmt} (key:{api_key[:6]}..)", data)
                     return {
                         "current": data["c"],
                         "high": data["h"],
@@ -766,19 +769,14 @@ def get_realtime_quote_finnhub(symbol):
                         "source": f"Finnhub ({fmt})"
                     }
                 else:
-                    # Log what Finnhub actually returned
-                    _store_quote_debug(symbol, f"❌ {fmt} → c={data.get('c',0)}", data)
-            elif resp.status_code == 429:
-                _store_quote_debug(symbol, f"⚠️ {fmt} → 429 rate limit", {})
-                time.sleep(1)
-            elif resp.status_code == 403:
-                _store_quote_debug(symbol, f"🔒 {fmt} → 403 forbidden (key invalid?)", {})
-                break
+                    all_attempts.append(f"{fmt}→c={data.get('c',0)}")
             else:
-                _store_quote_debug(symbol, f"❌ {fmt} → HTTP {resp.status_code}", {})
+                all_attempts.append(f"{fmt}→HTTP{status_code}")
         except Exception as e:
-            _store_quote_debug(symbol, f"❌ {fmt} → {str(e)[:50]}", {})
+            all_attempts.append(f"{fmt}→err:{str(e)[:30]}")
     
+    # Log all failed attempts
+    _store_quote_debug(symbol, f"❌ All failed (key:{api_key[:6]}..) | " + " | ".join(all_attempts), {})
     return None
 
 def _store_quote_debug(symbol, status, data):
@@ -2674,10 +2672,12 @@ if auto_refresh:
         unsafe_allow_html=True
     )
 
-tab_watchlist, tab_single, tab_scanner, tab_portfolio, tab_analytics = st.tabs([
+tab_watchlist, tab_single, tab_scanner, tab_backtest, tab_alerts, tab_portfolio, tab_analytics = st.tabs([
     "⚡ WATCHLIST",
     "◉ ANALYSIS", 
-    "⌬ SCANNER", 
+    "⌬ SCANNER",
+    "📊 BACKTEST",
+    "🔔 ALERTS",
     "▣ PORTFOLIO",
     "◫ ANALYTICS"
 ])
@@ -2892,31 +2892,20 @@ with tab_single:
                         """, unsafe_allow_html=True)
                 
                 with freshness_cols[2]:
-                    # Show Finnhub API debug info
-                    quote_dbg = st.session_state.get("quote_debug", {}).get(symbol_input.replace(".IS",""), {})
-                    if quote_dbg:
-                        dbg_status = quote_dbg.get("status", "?")
-                        dbg_raw = quote_dbg.get("raw", "")[:120]
-                        dbg_time = quote_dbg.get("time", "")
-                        st.markdown(f"""
-                            <div style="padding:8px 12px; border-radius:8px; background:rgba(128,0,255,0.06); border-left:3px solid #7c4dff;">
-                                🔍 <b>API Debug</b> <span style="color:#888; font-size:0.75em;">{dbg_time}</span>
-                                <br><span style="font-family:'JetBrains Mono',monospace; font-size:0.68em; color:#aaa;">{dbg_status}</span>
-                                <br><span style="font-family:'JetBrains Mono',monospace; font-size:0.6em; color:#555;">{dbg_raw}</span>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.markdown("""
-                            <div style="padding:8px 12px; border-radius:8px; background:rgba(128,0,255,0.06); border-left:3px solid #7c4dff;">
-                                🔍 <b>API Debug:</b> No quote attempt yet
-                            </div>
-                        """, unsafe_allow_html=True)
                     last_bar_time = df.index[-1].strftime("%H:%M:%S") if hasattr(df.index[-1], 'strftime') else str(df.index[-1])
                     st.markdown(f"""
                         <div style="padding:8px 12px; border-radius:8px; background:rgba(255,255,255,0.04); border-left:3px solid #888;">
                             🕒 <b>Last Bar:</b> {last_bar_time}
                         </div>
                     """, unsafe_allow_html=True)
+                
+                # Debug panel (collapsed by default)
+                with st.expander("🔧 Debug Info", expanded=False):
+                    bridge_info = st.session_state.get("bridge_status", {}).get(symbol_input.replace(".IS",""), "unknown")
+                    quote_dbg = st.session_state.get("quote_debug", {}).get(symbol_input.replace(".IS",""), {})
+                    dbg_status = quote_dbg.get("status", "—")
+                    dbg_raw = quote_dbg.get("raw", "")[:150]
+                    st.code(f"Bridge: {bridge_info}\nAPI: {dbg_status}\nRaw: {dbg_raw}", language="text")
                 
                 st.markdown("")
                 # ML Model
@@ -3566,7 +3555,405 @@ with tab_scanner:
             """)
 
 # =====================
-# TAB 3: PORTFOLIO MANAGER (ENHANCED)
+# TAB 3: BACKTESTING ENGINE
+# =====================
+with tab_backtest:
+    st.markdown("""
+    <div style="margin-bottom:16px;">
+        <div style="font-family:'Outfit',sans-serif; font-size:1.3em; font-weight:700;">
+            📊 Signal Backtester — Test Before You Trade
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:0.72em; color:#5a6a7e;">
+            Run your scoring engine against historical data to validate signal quality
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    bt_col1, bt_col2, bt_col3 = st.columns([2, 1, 1])
+    with bt_col1:
+        bt_symbol = st.text_input("Symbol to Backtest", value="THYAO", key="bt_symbol").upper()
+    with bt_col2:
+        bt_hold_bars = st.selectbox("Hold Period (bars)", [3, 5, 8, 10, 15, 20], index=1, key="bt_hold")
+    with bt_col3:
+        bt_min_score = st.selectbox("Min Score Threshold", [50, 55, 60, 65, 70, 75, 80], index=3, key="bt_min_score")
+    
+    if st.button("🚀 Run Backtest", type="primary", key="run_backtest", width='stretch'):
+        with st.spinner("⏳ Running backtest... Scoring every bar in history..."):
+            bt_df, bt_sym = get_data_with_db_cache(bt_symbol, "30d", "15m")
+            
+            if bt_df is None or len(bt_df) < 100:
+                st.error(f"❌ Not enough data for {bt_symbol}. Need 100+ bars, got {len(bt_df) if bt_df is not None else 0}.")
+            else:
+                trades = []
+                lookback = 30
+                
+                progress = st.progress(0)
+                total_bars = len(bt_df) - lookback - bt_hold_bars
+                
+                bt_ml_model = None
+                if ML_AVAILABLE:
+                    bt_ml_model = train_ml_model(bt_symbol, bt_df)
+                
+                for i in range(lookback, len(bt_df) - bt_hold_bars):
+                    if i % 5 != 0:
+                        continue
+                    
+                    window = bt_df.iloc[:i+1].copy()
+                    if len(window) < 50:
+                        continue
+                    
+                    try:
+                        ml_prob = 0.5
+                        if bt_ml_model:
+                            ml_prob = get_ml_probability(window, bt_ml_model)
+                        
+                        last = window.iloc[-1]
+                        curr_rsi = float(last.get("RSI", 50))
+                        adx = float(last.get("ADX", 20))
+                        stoch_k = float(last.get("STOCH_K", 50))
+                        close = float(last["Close"])
+                        ema20 = float(last.get("EMA20", close))
+                        ema50 = float(last.get("EMA50", close))
+                        vwap = float(last.get("VWAP", close))
+                        atr = float(last.get("ATR", 0.001))
+                        if atr <= 0: atr = 0.001
+                        
+                        score = 50
+                        if 40 <= curr_rsi <= 60: score += 8
+                        elif curr_rsi < 30: score += 12
+                        elif curr_rsi > 75: score -= 10
+                        if close > ema20 > ema50: score += 15
+                        elif close < ema20 < ema50: score -= 10
+                        if close > vwap: score += 8
+                        if adx > 25: score += 8
+                        if stoch_k < 25: score += 10
+                        elif stoch_k > 80: score -= 8
+                        if ml_prob > 0.60: score += int((ml_prob - 0.5) * 30)
+                        elif ml_prob < 0.40: score -= int((0.5 - ml_prob) * 20)
+                        score = max(0, min(100, score))
+                        
+                        if score >= bt_min_score:
+                            entry_price = close
+                            entry_time = window.index[-1]
+                            future = bt_df.iloc[i+1:i+1+bt_hold_bars]
+                            if len(future) > 0:
+                                exit_price = float(future["Close"].iloc[-1])
+                                max_price = float(future["High"].max())
+                                min_price = float(future["Low"].min())
+                                pnl_pct = (exit_price - entry_price) / entry_price * 100
+                                max_gain = (max_price - entry_price) / entry_price * 100
+                                max_drawdown = (min_price - entry_price) / entry_price * 100
+                                
+                                if score >= 85 and ml_prob >= 0.70: grade = "A+"
+                                elif score >= 80 and ml_prob >= 0.65: grade = "A"
+                                elif score >= 75 and ml_prob >= 0.60: grade = "B+"
+                                elif score >= 70: grade = "B"
+                                elif score >= 60: grade = "C"
+                                else: grade = "D"
+                                
+                                trades.append({
+                                    "time": entry_time, "score": score, "grade": grade,
+                                    "ml_prob": ml_prob, "entry": entry_price, "exit": exit_price,
+                                    "pnl_pct": pnl_pct, "max_gain": max_gain,
+                                    "max_dd": max_drawdown, "won": pnl_pct > 0,
+                                })
+                    except Exception:
+                        continue
+                    
+                    if total_bars > 0:
+                        progress.progress(min(1.0, (i - lookback) / total_bars))
+                
+                progress.progress(1.0)
+                
+                if not trades:
+                    st.warning(f"No signals with score ≥ {bt_min_score} found in the data.")
+                else:
+                    trades_df = pd.DataFrame(trades)
+                    total = len(trades_df)
+                    wins = int(trades_df["won"].sum())
+                    losses = total - wins
+                    win_rate = wins / total * 100
+                    avg_pnl = trades_df["pnl_pct"].mean()
+                    avg_win = trades_df[trades_df["won"]]["pnl_pct"].mean() if wins > 0 else 0
+                    avg_loss = trades_df[~trades_df["won"]]["pnl_pct"].mean() if losses > 0 else 0
+                    total_pnl = trades_df["pnl_pct"].sum()
+                    max_dd = trades_df["max_dd"].min()
+                    gross_profit = trades_df[trades_df["pnl_pct"] > 0]["pnl_pct"].sum()
+                    gross_loss = abs(trades_df[trades_df["pnl_pct"] < 0]["pnl_pct"].sum())
+                    profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
+                    
+                    st.markdown("---")
+                    st.markdown(f"""
+                    <div style="text-align:center; margin-bottom:16px;">
+                        <div style="font-family:'Outfit',sans-serif; font-size:1.6em; font-weight:800; color:{'#00e676' if total_pnl > 0 else '#ff1744'};">
+                            {'📈' if total_pnl > 0 else '📉'} {total_pnl:+.2f}% Total Return
+                        </div>
+                        <div style="font-family:'JetBrains Mono',monospace; font-size:0.72em; color:#5a6a7e;">
+                            {bt_symbol} · {total} signals · {bt_hold_bars}-bar hold · Min score {bt_min_score}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    m1, m2, m3, m4, m5, m6 = st.columns(6)
+                    m1.metric("Win Rate", f"{win_rate:.1f}%", delta=f"{wins}W / {losses}L")
+                    m2.metric("Avg Trade", f"{avg_pnl:+.2f}%")
+                    m3.metric("Avg Win", f"{avg_win:+.2f}%")
+                    m4.metric("Avg Loss", f"{avg_loss:.2f}%")
+                    m5.metric("Profit Factor", f"{profit_factor:.2f}" if profit_factor < 100 else "∞")
+                    m6.metric("Max Drawdown", f"{max_dd:.2f}%")
+                    
+                    st.markdown("### 📊 Performance by Signal Grade")
+                    grade_order = ["A+", "A", "B+", "B", "C", "D"]
+                    grade_cols = st.columns(min(len(trades_df["grade"].unique()), 6))
+                    
+                    for idx, grade in enumerate(grade_order):
+                        g_df = trades_df[trades_df["grade"] == grade]
+                        if len(g_df) == 0:
+                            continue
+                        col_idx = min(idx, len(grade_cols) - 1)
+                        with grade_cols[col_idx]:
+                            g_wr = g_df["won"].sum() / len(g_df) * 100
+                            g_avg = g_df["pnl_pct"].mean()
+                            g_color = "#00e676" if g_avg > 0 else "#ff1744"
+                            st.markdown(f"""
+                            <div class="glass-card" style="text-align:center; padding:16px; border-top:3px solid {g_color};">
+                                <div style="font-size:1.6em; font-weight:800;">{grade}</div>
+                                <div style="font-size:0.9em; color:{g_color}; font-weight:700;">{g_avg:+.2f}%</div>
+                                <div style="font-size:0.75em; color:#888;">{len(g_df)} trades · {g_wr:.0f}% WR</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    
+                    st.markdown("### 📈 Equity Curve")
+                    equity = [100]
+                    for pnl in trades_df["pnl_pct"]:
+                        equity.append(equity[-1] * (1 + pnl / 100))
+                    
+                    fig_eq = go.Figure()
+                    fig_eq.add_trace(go.Scatter(
+                        y=equity, mode='lines', fill='tozeroy',
+                        line=dict(color='#00e5ff', width=2),
+                        fillcolor='rgba(0,229,255,0.1)', name='Equity'
+                    ))
+                    fig_eq.add_hline(y=100, line_dash="dash", line_color="#5a6a7e", opacity=0.5)
+                    fig_eq.update_layout(
+                        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(6,8,13,0.8)", height=300,
+                        margin=dict(l=40, r=20, t=20, b=30),
+                        yaxis_title="Equity (%)", xaxis_title="Trade #",
+                        font=dict(family="JetBrains Mono", size=10, color="#7a8a9e"),
+                    )
+                    st.plotly_chart(fig_eq, width='stretch')
+                    
+                    with st.expander("📋 Trade Log (all signals)", expanded=False):
+                        display_df = trades_df[["time", "grade", "score", "ml_prob", "entry", "exit", "pnl_pct", "max_gain", "max_dd"]].copy()
+                        display_df["ml_prob"] = (display_df["ml_prob"] * 100).round(1).astype(str) + "%"
+                        display_df["pnl_pct"] = display_df["pnl_pct"].round(2).astype(str) + "%"
+                        display_df["max_gain"] = display_df["max_gain"].round(2).astype(str) + "%"
+                        display_df["max_dd"] = display_df["max_dd"].round(2).astype(str) + "%"
+                        display_df["entry"] = display_df["entry"].round(2)
+                        display_df["exit"] = display_df["exit"].round(2)
+                        display_df.columns = ["Time", "Grade", "Score", "ML%", "Entry₺", "Exit₺", "P&L%", "Max↑", "Max↓"]
+                        st.dataframe(display_df, hide_index=True, width=0)
+
+# =====================
+# TAB 4: ALERTS SYSTEM (Telegram + Webhook)
+# =====================
+with tab_alerts:
+    st.markdown("""
+    <div style="margin-bottom:16px;">
+        <div style="font-family:'Outfit',sans-serif; font-size:1.3em; font-weight:700;">
+            🔔 Smart Alerts — Never Miss a Signal
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:0.72em; color:#5a6a7e;">
+            Get notified on Telegram when high-confidence signals fire
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("### ⚙️ Telegram Setup")
+    tg_col1, tg_col2 = st.columns(2)
+    with tg_col1:
+        tg_bot_token = st.text_input("Bot Token", type="password", key="tg_bot_token",
+                                      help="Create a bot via @BotFather on Telegram, paste the token here")
+    with tg_col2:
+        tg_chat_id = st.text_input("Chat ID", key="tg_chat_id",
+                                    help="Send /start to your bot, then use @userinfobot to get your chat ID")
+    
+    if tg_bot_token:
+        st.session_state["telegram_bot_token"] = tg_bot_token
+    if tg_chat_id:
+        st.session_state["telegram_chat_id"] = tg_chat_id
+    
+    st.markdown("### 🎯 Alert Rules")
+    al_col1, al_col2, al_col3 = st.columns(3)
+    with al_col1:
+        alert_min_grade = st.selectbox("Min Signal Grade", ["A+", "A", "B+", "B", "C"], index=1, key="alert_min_grade")
+    with al_col2:
+        alert_min_score = st.slider("Min Score", 50, 90, 70, step=5, key="alert_min_score")
+    with al_col3:
+        alert_cooldown = st.selectbox("Cooldown (min)", [5, 10, 15, 30, 60], index=2, key="alert_cooldown")
+    
+    alert_symbols_input = st.text_input(
+        "Symbols to Monitor (comma-separated)", 
+        value="THYAO, GARAN, AKBNK, ASELS, FROTO, TUPRS, EREGL, SISE, TOASO, BIMAS",
+        key="alert_symbols"
+    )
+    alert_symbols = [s.strip().upper().replace(".IS", "") for s in alert_symbols_input.split(",") if s.strip()]
+    
+    with st.expander("🔗 Webhook (Optional — Discord, Slack, etc.)"):
+        webhook_url = st.text_input("Webhook URL", key="webhook_url",
+                                     help="POST request will be sent with JSON payload for each alert")
+        if webhook_url:
+            st.session_state["webhook_url"] = webhook_url
+    
+    st.markdown("---")
+    
+    test_col1, test_col2 = st.columns(2)
+    with test_col1:
+        if st.button("🧪 Send Test Alert", key="test_alert"):
+            token = st.session_state.get("telegram_bot_token", "")
+            chat = st.session_state.get("telegram_chat_id", "")
+            
+            if not token or not chat:
+                st.error("❌ Please enter both Bot Token and Chat ID")
+            else:
+                try:
+                    msg = "🧪 NEXUS TRADE — Test Alert\n\n✅ Connection successful!\nAlerts are configured and ready.\n\nSent from NEXUS TRADE Terminal"
+                    resp = requests.post(
+                        f"https://api.telegram.org/bot{token}/sendMessage",
+                        json={"chat_id": chat, "text": msg},
+                        timeout=10
+                    )
+                    if resp.status_code == 200 and resp.json().get("ok"):
+                        st.success("✅ Test alert sent! Check your Telegram.")
+                    else:
+                        st.error(f"❌ Telegram error: {resp.json().get('description', resp.text[:100])}")
+                except Exception as e:
+                    st.error(f"❌ Connection error: {str(e)[:80]}")
+    
+    with test_col2:
+        alert_active = st.toggle("🟢 Alerts Active", value=False, key="alerts_active")
+    
+    if alert_active and alert_symbols:
+        st.markdown("### 📡 Live Monitoring")
+        
+        if "alert_history" not in st.session_state:
+            st.session_state.alert_history = []
+        if "last_alert_time" not in st.session_state:
+            st.session_state.last_alert_time = {}
+        
+        def send_telegram_alert(symbol, grade, score, ml_prob, price, reasons):
+            token = st.session_state.get("telegram_bot_token", "")
+            chat = st.session_state.get("telegram_chat_id", "")
+            if not token or not chat:
+                return False
+            cooldown_mins = st.session_state.get("alert_cooldown", 15)
+            last = st.session_state.get("last_alert_time", {}).get(symbol, 0)
+            if time.time() - last < cooldown_mins * 60:
+                return False
+            try:
+                reasons_text = "\n".join([f"  • {r}" for r in reasons[:5]])
+                msg = (
+                    f"🚨 NEXUS TRADE ALERT\n\n"
+                    f"{'🟢' if grade in ['A+','A'] else '🟡'} {symbol} — Grade {grade}\n"
+                    f"Score: {score} | ML: {ml_prob*100:.0f}%\n"
+                    f"Price: TRY {price:.2f}\n\n"
+                    f"Factors:\n{reasons_text}\n\n"
+                    f"Time: {datetime.now().strftime('%H:%M:%S')}"
+                )
+                resp = requests.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={"chat_id": chat, "text": msg},
+                    timeout=10
+                )
+                if resp.status_code == 200:
+                    st.session_state.last_alert_time[symbol] = time.time()
+                    return True
+            except Exception:
+                pass
+            return False
+        
+        def send_webhook_alert(symbol, grade, score, ml_prob, price, reasons):
+            url = st.session_state.get("webhook_url", "")
+            if not url:
+                return
+            try:
+                requests.post(url, json={
+                    "source": "NEXUS TRADE", "symbol": symbol, "grade": grade,
+                    "score": score, "ml_probability": ml_prob, "price": price,
+                    "reasons": reasons[:5], "timestamp": datetime.now().isoformat()
+                }, timeout=5)
+            except Exception:
+                pass
+        
+        grade_ranks = {"A+": 6, "A": 5, "B+": 4, "B": 3, "C": 2, "D": 1, "F": 0}
+        min_grade_rank = grade_ranks.get(alert_min_grade, 5)
+        
+        scan_status = st.empty()
+        alert_container = st.container()
+        triggered = []
+        scan_status.info(f"🔍 Scanning {len(alert_symbols)} symbols...")
+        
+        for sym in alert_symbols:
+            try:
+                df_alert, _ = get_data_with_db_cache(sym, "30d", "15m")
+                if df_alert is None or len(df_alert) < 50:
+                    continue
+                al_ml_model = train_ml_model(sym, df_alert) if ML_AVAILABLE else None
+                al_result = calculate_advanced_score(df_alert, sym, None, al_ml_model)
+                
+                if al_result and al_result["score"] >= alert_min_score:
+                    sig = al_result["signal"]
+                    if grade_ranks.get(sig["grade"], 0) >= min_grade_rank:
+                        sent_tg = send_telegram_alert(sym, sig["grade"], al_result["score"], al_result["ml_prob"], al_result["price"], al_result["reasons"])
+                        send_webhook_alert(sym, sig["grade"], al_result["score"], al_result["ml_prob"], al_result["price"], al_result["reasons"])
+                        triggered.append({"symbol": sym, "grade": sig["grade"], "score": al_result["score"], "ml_prob": al_result["ml_prob"], "price": al_result["price"], "sent": sent_tg, "time": datetime.now().strftime("%H:%M:%S")})
+                time.sleep(0.5)
+            except Exception:
+                continue
+        
+        scan_status.empty()
+        
+        with alert_container:
+            if triggered:
+                st.success(f"🔔 {len(triggered)} alert(s) triggered!")
+                for t in triggered:
+                    tg_icon = "📤" if t["sent"] else "🔇"
+                    st.markdown(f"""
+                    <div class="glass-card" style="padding:12px 16px; margin:6px 0; border-left:3px solid {'#00e676' if t['grade'] in ['A+','A'] else '#ffd600'};">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <b style="font-size:1.1em;">{t['symbol']}</b>
+                                <span style="margin-left:8px; background:{'#00e676' if t['grade'] in ['A+','A'] else '#ffd600'}22; padding:2px 10px; border-radius:12px; font-weight:700;">{t['grade']}</span>
+                                <span style="margin-left:6px; color:#888;">Score: {t['score']} | ML: {t['ml_prob']*100:.0f}%</span>
+                            </div>
+                            <div style="text-align:right;">
+                                <div>₺{t['price']:.2f}</div>
+                                <div style="font-size:0.75em; color:#888;">{tg_icon} {t['time']}</div>
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                st.session_state.alert_history = (triggered + st.session_state.get("alert_history", []))[:50]
+            else:
+                st.info(f"😴 No signals meeting criteria (Grade ≥ {alert_min_grade}, Score ≥ {alert_min_score})")
+        
+        if st.session_state.get("alert_history"):
+            with st.expander(f"📜 Alert History ({len(st.session_state.alert_history)} recent)"):
+                for h in st.session_state.alert_history[:20]:
+                    st.caption(f"{h['time']} — **{h['symbol']}** {h['grade']} (Score:{h['score']}, ₺{h['price']:.2f})")
+    
+    elif not alert_active:
+        st.markdown("""
+        <div class="glass-card" style="text-align:center; padding:40px;">
+            <div style="font-size:3em; margin-bottom:12px;">🔕</div>
+            <div style="font-family:'Outfit',sans-serif; font-size:1.1em; font-weight:600; color:#7a8a9e;">Alerts are paused</div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:0.72em; color:#3a5068; margin-top:6px;">Toggle "Alerts Active" to start monitoring</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+# =====================
+# TAB 5: PORTFOLIO MANAGER (ENHANCED)
 # =====================
 with tab_portfolio:
     st.markdown("### 💼 Portfolio Manager")
