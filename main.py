@@ -3640,7 +3640,7 @@ with tab_backtest:
                         display_df["entry"] = display_df["entry"].round(2)
                         display_df["exit"] = display_df["exit"].round(2)
                         display_df.columns = ["Time", "Grade", "Score", "ML%", "Entry₺", "Exit₺", "P&L%", "Max↑", "Max↓"]
-                        st.dataframe(display_df, hide_index=True, width=0)
+                        st.dataframe(display_df, hide_index=True)
 
 # =====================
 # TAB 4: ALERTS SYSTEM (Telegram + Webhook)
@@ -3994,7 +3994,7 @@ with tab_portfolio:
 
         st.dataframe(
             summary_df,
-            width='stretch',
+            use_container_width=True,
             hide_index=True,
             column_config={
                 "Stock": st.column_config.TextColumn("Stock", width="small"),
@@ -4075,7 +4075,7 @@ with tab_portfolio:
             trades_df = pd.DataFrame(trades)
             st.dataframe(
                 trades_df[['id', 'symbol', 'type', 'quantity', 'price', 'datetime', 'commission', 'total', 'notes']],
-                width='stretch',
+                use_container_width=True,
                 hide_index=True,
                 column_config={
                     "id": st.column_config.NumberColumn("ID", width="small"),
@@ -4337,7 +4337,7 @@ with tab_analytics:
             with col1:
                 st.dataframe(
                     stock_perf.sort_values('Toplam K/Z', ascending=False),
-                    width='stretch',
+                    use_container_width=True,
                     hide_index=True,
                     column_config={
                         "Symbol": st.column_config.TextColumn("Stock"),
