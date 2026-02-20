@@ -34,7 +34,7 @@ warnings.filterwarnings('ignore')
 # =====================
 st.set_page_config(
     layout="wide",
-    page_title="NEXUS TRADE · BIST Day Trading Terminal",
+    page_title="NEXUS TRADE · BIST Gün İçi İşlem Terminali",
     page_icon="◈"
 )
 
@@ -385,7 +385,7 @@ def get_sector_peers(symbol, max_peers=5):
 def calculate_sector_relative_strength(symbol, period="5d", interval="15m"):
     """
     Calculate how a stock performs vs its sector peers.
-    Returns relative strength score (-100 to +100) and details.
+    Getiris relative strength score (-100 to +100) and details.
     """
     peers, sector = get_sector_peers(symbol)
     if not peers or not sector:
@@ -614,7 +614,7 @@ def get_earnings_info(symbol):
         
         if days_diff < -1:
             status = "reported"
-            label = f"Reported {date_str}"
+            label = f"Açıklanan {date_str}"
         elif days_diff <= 0:
             status = "today"
             label = "⚡ REPORTING TODAY"
@@ -647,7 +647,7 @@ def get_earnings_info(symbol):
 def get_sector_earnings_calendar(symbol):
     """
     Get earnings dates for all stocks in the same sector.
-    Returns sorted list + sector name.
+    Getiris sorted list + sector name.
     """
     peers, sector = get_sector_peers(symbol, max_peers=15)
     if not sector:
@@ -669,7 +669,7 @@ def get_sector_earnings_calendar(symbol):
 def get_full_earnings_calendar(quarter="Q4_2025"):
     """
     Get the full earnings calendar for a quarter.
-    Returns list of all stocks with dates, sorted chronologically.
+    Getiris list of all stocks with dates, sorted chronologically.
     """
     quarter_data = BIST_EARNINGS.get(quarter, {})
     dates = quarter_data.get("dates", {})
@@ -964,7 +964,7 @@ def _macd_vectorized(close, fast=12, slow=26, signal=9):
 def _support_resistance_levels(high, low, close, window=20, num_levels=3):
     """
     Detect Support and Resistance levels using pivot point clustering.
-    Returns lists of support and resistance price levels.
+    Getiris lists of support and resistance price levels.
     """
     supports = []
     resistances = []
@@ -1642,16 +1642,16 @@ ML_CONFIDENCE_THRESHOLD = 0.58  # Minimum ML probability to show actionable sign
 def get_signal_confidence(ml_prob, score, confluence):
     """
     Calculate overall signal confidence and filter low-quality signals.
-    Returns (confidence_level, is_actionable, label)
+    Getiris (confidence_level, is_actionable, label)
     """
     if ml_prob >= 0.70 and score >= 75 and confluence >= 70:
-        return ("HIGH", True, "🟢 HIGH CONFIDENCE")
+        return ("HIGH", True, "🟢 YÜKSEK GÜVENİLİRLİK")
     elif ml_prob >= 0.60 and score >= 65:
-        return ("MEDIUM", True, "🟡 MEDIUM CONFIDENCE")
+        return ("MEDIUM", True, "🟡 ORTA GÜVENİLİRLİK")
     elif ml_prob >= ML_CONFIDENCE_THRESHOLD and score >= 55:
-        return ("LOW", True, "🟠 LOW CONFIDENCE")
+        return ("LOW", True, "🟠 DÜŞÜK GÜVENİLİRLİK")
     else:
-        return ("SKIP", False, "⚪ NO EDGE — SKIP")
+        return ("SKIP", False, "⚪ AVANTAJ YOK — GEÇ")
 
 
 # =====================
@@ -1660,7 +1660,7 @@ def get_signal_confidence(ml_prob, score, confluence):
 def detect_mean_reversion(df):
     """
     Detect overextended moves likely to reverse.
-    Returns dict with alerts and reversal probability.
+    Getiris dict with alerts and reversal probability.
     """
     if df is None or len(df) < 20:
         return None
@@ -1675,31 +1675,31 @@ def detect_mean_reversion(df):
     stoch_k = float(last.get("STOCH_K", 50))
     
     alerts = []
-    reversal_score = 0  # -100 (bearish reversal) to +100 (bullish reversal)
+    reversal_score = 0  # -100 (düşüş dönüşü) to +100 (yükseliş dönüşü)
     
     # VWAP z-score overextension
     zscore = (close - vwap) / atr if atr > 0 else 0
     if zscore > 2.5:
-        alerts.append(("⚠️ OVEREXTENDED ABOVE VWAP", f"Z-score: {zscore:.1f}σ — mean reversion likely"))
+        alerts.append(("⚠️ VWAP ÜZERİNDE AŞIRI UZAKLAŞMA", f"Z-score: {zscore:.1f}σ — ortalamaya dönüş olası"))
         reversal_score -= 30
     elif zscore < -2.5:
-        alerts.append(("⚠️ OVEREXTENDED BELOW VWAP", f"Z-score: {zscore:.1f}σ — bounce likely"))
+        alerts.append(("⚠️ VWAP ALTINDA AŞIRI UZAKLAŞMA", f"Z-score: {zscore:.1f}σ — sıçrama olası"))
         reversal_score += 30
     
     # BB extreme
     if close > bb_upper:
-        alerts.append(("📈 ABOVE UPPER BB", "Price broke above Bollinger — exhaustion risk"))
+        alerts.append(("📈 ÜST BB ÜZERİNDE", "Fiyat Bollinger üstüne çıktı — tükenme riski"))
         reversal_score -= 20
     elif close < bb_lower:
-        alerts.append(("📉 BELOW LOWER BB", "Price broke below Bollinger — bounce zone"))
+        alerts.append(("📉 ALT BB ALTINDA", "Fiyat Bollinger altına düştü — sıçrama bölgesi"))
         reversal_score += 20
     
     # RSI extremes with Stochastic confirmation
     if rsi > 80 and stoch_k > 85:
-        alerts.append(("🔴 RSI + STOCH OVERBOUGHT", f"RSI: {rsi:.0f}, %K: {stoch_k:.0f} — selling pressure building"))
+        alerts.append(("🔴 RSI + STOCH AŞIRI ALIM", f"RSI: {rsi:.0f}, %K: {stoch_k:.0f} — satış baskısı artıyor"))
         reversal_score -= 25
     elif rsi < 20 and stoch_k < 15:
-        alerts.append(("🟢 RSI + STOCH OVERSOLD", f"RSI: {rsi:.0f}, %K: {stoch_k:.0f} — buying opportunity"))
+        alerts.append(("🟢 RSI + STOCH AŞIRI SATIM", f"RSI: {rsi:.0f}, %K: {stoch_k:.0f} — alım fırsatı"))
         reversal_score += 25
     
     # Consecutive direction exhaustion
@@ -1713,10 +1713,10 @@ def detect_mean_reversion(df):
             break
     
     if consec >= 5 and direction == 1:
-        alerts.append(("🔥 5+ GREEN BARS", "Exhaustion likely — take partial profits"))
+        alerts.append(("🔥 5+ YEŞİL BAR", "Tükenme olası — kısmi kâr al"))
         reversal_score -= 15
     elif consec >= 5 and direction == -1:
-        alerts.append(("❄️ 5+ RED BARS", "Capitulation likely — watch for reversal candle"))
+        alerts.append(("❄️ 5+ KIRMIZI BAR", "Panik satışı olası — dönüş mumu bekle"))
         reversal_score += 15
     
     reversal_score = max(-100, min(100, reversal_score))
@@ -1735,7 +1735,7 @@ def detect_mean_reversion(df):
 def detect_candlestick_patterns(df, lookback=5):
     """
     Detect common candlestick patterns for day trading.
-    Returns dict with detected patterns and their bullish/bearish signals.
+    Getiris dict with detected patterns and their bullish/bearish signals.
     """
     if df is None or len(df) < lookback + 2:
         return {"patterns": [], "score_adjustment": 0}
@@ -1763,7 +1763,7 @@ def detect_candlestick_patterns(df, lookback=5):
     if total_range > 0 and body / total_range < 0.1:
         patterns.append(("🕯️ Doji", "Indecision — potential reversal", 0))
     
-    # === HAMMER (bullish reversal at bottom) ===
+    # === HAMMER (yükseliş dönüşü at bottom) ===
     if (total_range > 0 and 
         lower_wick > body * 2 and 
         upper_wick < body * 0.5 and
@@ -1779,7 +1779,7 @@ def detect_candlestick_patterns(df, lookback=5):
             patterns.append(("💫 Shooting Star", "Bearish reversal at resistance", -8))
             score_adj -= 8
         elif last["RSI"] < 40:
-            patterns.append(("💫 Inverted Hammer", "Potential bullish reversal", 5))
+            patterns.append(("💫 Inverted Hammer", "Potential yükseliş dönüşü", 5))
             score_adj += 5
     
     # === BULLISH ENGULFING ===
@@ -1798,7 +1798,7 @@ def detect_candlestick_patterns(df, lookback=5):
         patterns.append(("🔴 Bearish Engulfing", "Reversal — sellers dominate", -12))
         score_adj -= 12
     
-    # === MORNING STAR (3-candle bullish reversal) ===
+    # === MORNING STAR (3-candle yükseliş dönüşü) ===
     if len(tail) >= 3:
         c3 = tail.iloc[-3]  # First: big red
         c2 = prev            # Second: small body (star)
@@ -1811,10 +1811,10 @@ def detect_candlestick_patterns(df, lookback=5):
         c1_big = abs(c1["Close"] - c1["Open"]) > atr * 0.5
         
         if c3_red and c3_big and c2_small and c1_green and c1_big:
-            patterns.append(("⭐ Morning Star", "Strong 3-bar bullish reversal", 15))
+            patterns.append(("⭐ Morning Star", "Strong 3-bar yükseliş dönüşü", 15))
             score_adj += 15
     
-    # === EVENING STAR (3-candle bearish reversal) ===
+    # === EVENING STAR (3-candle düşüş dönüşü) ===
     if len(tail) >= 3:
         c3 = tail.iloc[-3]
         c2 = prev
@@ -1827,7 +1827,7 @@ def detect_candlestick_patterns(df, lookback=5):
         c1_big = abs(c1["Close"] - c1["Open"]) > atr * 0.5
         
         if c3_green and c3_big and c2_small and c1_red and c1_big:
-            patterns.append(("🌙 Evening Star", "Strong 3-bar bearish reversal", -15))
+            patterns.append(("🌙 Evening Star", "Strong 3-bar düşüş dönüşü", -15))
             score_adj -= 15
     
     # === THREE WHITE SOLDIERS (strong uptrend confirmation) ===
@@ -2042,13 +2042,13 @@ def calculate_advanced_score(df, symbol, mtf_data=None, ml_model=None, sector_rs
         
         if confluence >= 80:
             score += 15
-            reasons.append(f"🎯 MTF Confluence: {confluence:.0f}% (all timeframes aligned)")
+            reasons.append(f"🎯 Çoklu ZD Uyumu: {confluence:.0f}% (all timeframes aligned)")
         elif confluence >= 60:
             score += 8
-            reasons.append(f"✅ MTF Confluence: {confluence:.0f}%")
+            reasons.append(f"✅ Çoklu ZD Uyumu: {confluence:.0f}%")
         else:
             score -= 5
-            reasons.append(f"⚠️ MTF Confluence: {confluence:.0f}% (mixed signals)")
+            reasons.append(f"⚠️ Çoklu ZD Uyumu: {confluence:.0f}% (mixed signals)")
     
     # === MACHINE LEARNING PROBABILITY (20 points) ===
     ml_prob = 0.5
@@ -2058,11 +2058,11 @@ def calculate_advanced_score(df, symbol, mtf_data=None, ml_model=None, sector_rs
         if ml_prob > 0.65:
             ml_boost = int((ml_prob - 0.5) * 40)
             score += ml_boost
-            reasons.append(f"🤖 ML Probability: {ml_prob*100:.1f}% (+{ml_boost} pts)")
+            reasons.append(f"🤖 ML Olasılığı: {ml_prob*100:.1f}% (+{ml_boost} pts)")
         elif ml_prob < 0.35:
             ml_penalty = int((0.5 - ml_prob) * 30)
             score -= ml_penalty
-            reasons.append(f"🤖 ML Probability: {ml_prob*100:.1f}% (-{ml_penalty} pts)")
+            reasons.append(f"🤖 ML Olasılığı: {ml_prob*100:.1f}% (-{ml_penalty} pts)")
     
     # === CANDLESTICK PATTERN ANALYSIS (±25 points) ===
     candle_result = detect_candlestick_patterns(df)
@@ -2118,8 +2118,8 @@ def calculate_advanced_score(df, symbol, mtf_data=None, ml_model=None, sector_rs
         rev_adj = int(mean_rev["reversal_score"] * 0.1)  # ±10 points max
         score += rev_adj
         if abs(rev_adj) >= 3:
-            rev_dir = "bullish reversal" if rev_adj > 0 else "bearish reversal"
-            reasons.append(f"🔄 Mean Reversion: {rev_dir} signal ({rev_adj:+d} pts)")
+            rev_dir = "yükseliş dönüşü" if rev_adj > 0 else "düşüş dönüşü"
+            reasons.append(f"🔄 Ort. Dönüş: {rev_dir} signal ({rev_adj:+d} pts)")
     
     final_score = max(0, min(100, int(score)))
     
@@ -2153,7 +2153,7 @@ def calculate_advanced_score(df, symbol, mtf_data=None, ml_model=None, sector_rs
 def match_closed_trades(trades):
     """
     Given a list of trade dicts, match BUY->SELL pairs using FIFO.
-    Returns (closed_trades_list, open_positions_dict).
+    Getiris (closed_trades_list, open_positions_dict).
     """
     closed_trades = []
     positions = {}  # symbol -> list of open buy lots
@@ -2192,8 +2192,8 @@ def match_closed_trades(trades):
 
                 closed_trades.append({
                     'Symbol': symbol,
-                    'Quantity': matched_qty,
-                    'Buy Price': buy_pos['price'],
+                    'Adet': matched_qty,
+                    'Alış Fiyatı': buy_pos['price'],
                     'Sell Price': sell_price,
                     'Buy Date': buy_pos['datetime'],
                     'Sell Date': trade['datetime'],
@@ -2602,7 +2602,7 @@ st.markdown("""
                     NEXUS TRADE
                 </div>
                 <div style="font-family:'JetBrains Mono',monospace; font-size:0.62em; color:#3a5068; letter-spacing:0.3em; text-transform:uppercase; margin-top:-2px;">
-                    BIST Day Trading Terminal · Finnhub + YF Hybrid
+                    BIST Gün İçi İşlem Terminali · Finnhub + YF Hibrit
                 </div>
             </div>
         </div>
@@ -2632,20 +2632,20 @@ with st.sidebar:
             NEXUS
         </div>
         <div style="font-family:'JetBrains Mono',monospace; font-size:0.6em; color:#2a3a4e; letter-spacing:0.2em; margin-top:2px;">
-            TRADE TERMINAL
+            TİCARET TERMİNALİ
         </div>
         <div style="width:40px; height:1px; background:linear-gradient(90deg, transparent, #00e5ff40, transparent); margin:8px auto;"></div>
     </div>
     """, unsafe_allow_html=True)
     
-    auto_refresh = st.toggle("⏱ AUTO-REFRESH", value=False, key="auto_refresh_toggle",
-                              help="Auto-reload every 60 seconds")
+    auto_refresh = st.toggle("⏱ OTOMATİK YENİLE", value=False, key="auto_refresh_toggle",
+                              help="Her 60 saniyede bir otomatik yeniler")
     
     if auto_refresh:
         st.markdown(f"""
         <div style="font-family:'JetBrains Mono',monospace; font-size:0.68em; color:#00e5ff; 
              background:rgba(0,229,255,0.04); padding:6px 10px; border-radius:8px; border:1px solid rgba(0,229,255,0.1);">
-            <span class="neon-live">●</span> LIVE — {datetime.now().strftime('%H:%M:%S')}
+            <span class="neon-live">●</span> CANLI — {datetime.now().strftime('%H:%M:%S')}
         </div>
         """, unsafe_allow_html=True)
         
@@ -2657,10 +2657,39 @@ with st.sidebar:
     st.markdown("""
     <div style="margin-top:16px; padding:12px; background:rgba(10,15,25,0.5); border-radius:10px; border:1px solid rgba(0,229,255,0.04);">
         <div style="font-family:'JetBrains Mono',monospace; font-size:0.65em; color:#3a5068; line-height:1.8;">
-            <span style="color:#5a6a7e;">INTERVAL</span> <span style="color:#00e5ff;">15m</span><br>
-            <span style="color:#5a6a7e;">LOOKBACK</span> <span style="color:#00e5ff;">30d</span><br>
-            <span style="color:#5a6a7e;">DATA SRC</span> <span style="color:#00e676;">YF + Finnhub RT</span><br>
-            <span style="color:#5a6a7e;">ML</span> <span style="color:#00e676;">XGBoost 22F</span>
+            <span style="color:#5a6a7e;">ARALIK</span> <span style="color:#00e5ff;">15m</span><br>
+            <span style="color:#5a6a7e;">GERİYE BAKIŞ</span> <span style="color:#00e5ff;">30d</span><br>
+            <span style="color:#5a6a7e;">VERİ KAYNAĞI</span> <span style="color:#00e676;">YF + Finnhub RT</span><br>
+            <span style="color:#5a6a7e;">ML</span> <span style="color:#00e676;">XGBoost 30F</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # === KULLANIM KILAVUZU ===
+    st.markdown("""
+    <div style="margin-top:16px; padding:14px; background:rgba(0,229,255,0.03); border-radius:10px; border:1px solid rgba(0,229,255,0.06);">
+        <div style="font-family:'Outfit',sans-serif; font-size:0.82em; font-weight:700; color:#00e5ff; margin-bottom:8px;">
+            📖 Kullanım Kılavuzu
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:0.6em; color:#5a6a7e; line-height:2;">
+            <b style="color:#7a8a9e;">◉ ANALİZ</b> — Tek hisse detaylı teknik analiz, ML skoru, mum formasyonları, destek/direnç, trade planı<br>
+            <b style="color:#7a8a9e;">⌬ TARAYICI</b> — BIST30/50/100 tarayarak en güçlü sinyalleri otomatik bulur<br>
+            <b style="color:#7a8a9e;">📊 BACKTEST</b> — Sinyal motorunu geçmiş veriler üzerinde test eder (kazanma oranı, kar faktörü)<br>
+            <b style="color:#7a8a9e;">🔔 UYARILAR</b> — RSI aşırı alım/satım, hacim patlaması, fiyat hedefi alarmları<br>
+            <b style="color:#7a8a9e;">▣ PORTFÖLİO</b> — Açık pozisyon takibi, kar/zarar hesaplama, komisyon dahil<br>
+            <b style="color:#7a8a9e;">◫ ANALİTİK</b> — Bilanço takvimi (KAP), sektör karşılaştırma, korelasyon matrisi
+        </div>
+        <div style="width:100%; height:1px; background:rgba(0,229,255,0.08); margin:10px 0;"></div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:0.58em; color:#3a5068; line-height:1.8;">
+            <b style="color:#5a6a7e;">SKOR SİSTEMİ:</b><br>
+            &nbsp;&nbsp;A+ (85+) = Güçlü Al &nbsp;|&nbsp; A (80+) = Al<br>
+            &nbsp;&nbsp;B (70+) = Dikkat &nbsp;|&nbsp; C (60+) = Zayıf<br>
+            &nbsp;&nbsp;D/F = İşlem Yapma<br>
+            <b style="color:#5a6a7e;">ML GÜVENİLİRLİK:</b><br>
+            &nbsp;&nbsp;🟢 YÜKSEK (ML≥70%, Skor≥75)<br>
+            &nbsp;&nbsp;🟡 ORTA (ML≥60%, Skor≥65)<br>
+            &nbsp;&nbsp;🟠 DÜŞÜK (ML≥58%, Skor≥55)<br>
+            &nbsp;&nbsp;⚪ İŞLEM YOK = Avantaj yok
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -2672,156 +2701,14 @@ if auto_refresh:
         unsafe_allow_html=True
     )
 
-tab_watchlist, tab_single, tab_scanner, tab_backtest, tab_alerts, tab_portfolio, tab_analytics = st.tabs([
-    "⚡ WATCHLIST",
-    "◉ ANALYSIS", 
-    "⌬ SCANNER",
+tab_single, tab_scanner, tab_backtest, tab_alerts, tab_portfolio, tab_analytics = st.tabs([
+    "◉ ANALİZ", 
+    "⌬ TARAYICI",
     "📊 BACKTEST",
-    "🔔 ALERTS",
-    "▣ PORTFOLIO",
-    "◫ ANALYTICS"
+    "🔔 UYARILAR",
+    "▣ PORTFÖLİO",
+    "◫ ANALİTİK"
 ])
-
-# =====================
-# TAB 0: WATCHLIST DASHBOARD (NEW)
-# =====================
-with tab_watchlist:
-    st.markdown("""
-    <div style="margin-bottom:16px;">
-        <span style="font-family:'Outfit',sans-serif; font-size:1.5em; font-weight:800; color:#ffffff;">Active Watchlist</span>
-        <span style="font-family:'JetBrains Mono',monospace; font-size:0.7em; color:#3a5068; margin-left:12px; letter-spacing:0.15em;">LIVE GRADES & SIGNALS</span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Default watchlist (user can customize)
-    default_watchlist = "THYAO, GARAN, AKBNK, ASELS, TCELL, TUPRS, FROTO, SISE, KCHOL, EREGL"
-    
-    wl_input = st.text_input(
-        "📋 Watchlist (comma-separated)", 
-        value=st.session_state.get("watchlist_input", default_watchlist),
-        key="wl_input_field",
-        help="Enter stock codes separated by commas"
-    )
-    st.session_state["watchlist_input"] = wl_input
-    
-    wl_cols = st.columns([1, 1])
-    with wl_cols[0]:
-        wl_enable_ml = st.checkbox("🤖 ML Scores", value=True, key="wl_ml")
-    with wl_cols[1]:
-        wl_auto = st.checkbox("Auto-refresh on load", value=False, key="wl_auto", help="Scan automatically (slower initial load)")
-    
-    if st.button("⚡ Refresh Watchlist", type="primary", key="wl_refresh", width='stretch') or wl_auto:
-        watchlist = [s.strip().upper().replace(".IS", "") for s in wl_input.split(",") if s.strip()]
-        
-        if watchlist:
-            progress = st.progress(0)
-            wl_results = []
-            
-            for idx, sym in enumerate(watchlist):
-                progress.progress((idx + 1) / len(watchlist))
-                try:
-                    df, _ = get_data_with_db_cache(sym, data_period, data_interval)
-                    if df is not None and len(df) >= 50:
-                        ml_model = None
-                        if wl_enable_ml and ML_AVAILABLE:
-                            ml_model = train_ml_model(sym, df)
-                        
-                        result = calculate_advanced_score(df, sym, None, ml_model)
-                        if result:
-                            # Get live quote
-                            rt = get_realtime_quote(sym)
-                            result["rt_quote"] = rt
-                            result["df"] = df
-                            wl_results.append(result)
-                except Exception:
-                    pass
-            
-            progress.empty()
-            
-            if wl_results:
-                # Sort by score
-                wl_results.sort(key=lambda x: x["score"], reverse=True)
-                
-                # Summary row
-                avg_score = np.mean([r["score"] for r in wl_results])
-                top_grade = wl_results[0]["signal"]["grade"]
-                bullish = sum(1 for r in wl_results if r["score"] >= 65)
-                bearish = sum(1 for r in wl_results if r["score"] < 45)
-                
-                sum_cols = st.columns(4)
-                sum_cols[0].metric("Avg Score", f"{avg_score:.0f}")
-                sum_cols[1].metric("Top Signal", top_grade)
-                sum_cols[2].metric("Bullish", f"{bullish}/{len(wl_results)}")
-                sum_cols[3].metric("Bearish", f"{bearish}/{len(wl_results)}")
-                
-                st.markdown("---")
-                
-                # Display cards in 2 columns
-                col_left, col_right = st.columns(2)
-                
-                for i, res in enumerate(wl_results):
-                    target_col = col_left if i % 2 == 0 else col_right
-                    sig = res["signal"]
-                    rt = res.get("rt_quote")
-                    
-                    # Price display
-                    if rt:
-                        price_str = f"₺{rt['current']:.2f}"
-                        chg = rt.get("change_pct", 0)
-                        chg_color = "#00c853" if chg >= 0 else "#d50000"
-                        chg_sign = "+" if chg >= 0 else ""
-                        chg_str = f'<span style="color:{chg_color}">{chg_sign}{chg:.2f}%</span>'
-                    else:
-                        price_str = f"₺{res['price']:.2f}"
-                        chg_str = ""
-                    
-                    # Candle patterns summary
-                    candle_str = ""
-                    if res.get("candle_patterns"):
-                        candle_str = " ".join([p[0] for p in res["candle_patterns"][:2]])
-                    
-                    # Mini sparkline data (last 20 closes)
-                    df_spark = res.get("df")
-                    spark_trend = ""
-                    if df_spark is not None and len(df_spark) >= 10:
-                        recent = df_spark["Close"].tail(10).tolist()
-                        if recent[-1] > recent[0]:
-                            spark_trend = "📈"
-                        else:
-                            spark_trend = "📉"
-                    
-                    card_extra = "scanner-card-hot" if sig["grade"] in ["A+", "A"] else ""
-                    
-                    with target_col:
-                        st.markdown(f"""
-                        <div class="scanner-card {card_extra}">
-                            <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <div>
-                                    <span style="font-size:1.4em; font-weight:800;">{res['symbol']}</span>
-                                    <span style="margin-left:8px; font-size:1.1em;">{price_str}</span>
-                                    {chg_str}
-                                    <span style="margin-left:6px;">{spark_trend}</span>
-                                </div>
-                                <div style="text-align:right;">
-                                    <div style="background:{sig['color']}22; color:{sig['color']}; padding:4px 14px; border-radius:20px; font-weight:800; font-size:1.1em; border:1px solid {sig['color']}44;">
-                                        {sig['emoji']} {sig['grade']}
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:0.85em; color:#aaa;">
-                                <span>Score: <b style="color:white">{res['score']}</b></span>
-                                <span>RSI: <b style="color:white">{res['rsi']:.0f}</b></span>
-                                <span>ML: <b style="color:white">{res['ml_prob']*100:.0f}%</b></span>
-                                <span>R/R: <b style="color:white">{res['rr']:.1f}</b></span>
-                                <span style="color:{'#00e676' if res.get('confidence')=='HIGH' else ('#ffd600' if res.get('confidence')=='MEDIUM' else ('#ff9100' if res.get('confidence')=='LOW' else '#5a6a7e'))}; font-weight:700;">{res.get('confidence','—')}</span>
-                            </div>
-                            <div style="margin-top:6px; font-size:0.8em; color:#888;">
-                                {sig['label']} {candle_str}
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-            else:
-                st.warning("No data returned for watchlist symbols. Check if BIST market is open.")
 
 # =====================
 # TAB 1: SINGLE ANALYSIS
@@ -2833,21 +2720,21 @@ with tab_single:
         symbol_input = st.text_input("Hisse Kodu", value="THYAO", key="single_symbol").upper()
     
     with col2:
-        enable_ml = st.checkbox("🤖 ML Enhancement", value=True, key="enable_ml")
+        enable_ml = st.checkbox("🤖 ML Tahmini", value=True, key="enable_ml")
     
     with col3:
-        enable_mtf = st.checkbox("🎯 Multi-Timeframe", value=True, key="enable_mtf")
+        enable_mtf = st.checkbox("🎯 Çoklu Zaman Dilimi", value=True, key="enable_mtf")
     
-    if st.button("🔍 Analyze", type="primary"):
-        with st.spinner("Analyzing with ML & Multi-Timeframe..."):
+    if st.button("🔍 Analiz Et", type="primary"):
+        with st.spinner("ML ve Çoklu Zaman Dilimi ile analiz ediliyor..."):
             # Get main data using sidebar interval settings
             df, sym = get_data_with_db_cache(symbol_input, data_period, data_interval)
             
             if df is None:
                 err = st.session_state.get("fetch_errors", {}).get(symbol_input.replace(".IS",""), "Unknown")
-                st.error(f"❌ Data fetch failed for **{symbol_input}**")
+                st.error(f"❌ Veri çekilemedi: **{symbol_input}**")
                 st.caption(f"Debug: {err}")
-                st.info("💡 Check: Is the symbol correct? Is BIST market open? Try again in a few seconds.")
+                st.info("💡 Kontrol: Sembol doğru mu? BIST açık mı? Birkaç saniye sonra tekrar deneyin.")
             else:
                 # === REAL-TIME QUOTE OVERLAY ===
                 rt_quote = get_realtime_quote(symbol_input)
@@ -2867,7 +2754,7 @@ with tab_single:
                     bridge_color = "#00e676" if "bridged" in bridge_info else ("#ffd600" if "fresh" in bridge_info else "#ff9100")
                     st.markdown(f"""
                         <div style="padding:8px 12px; border-radius:8px; background:rgba(0,229,255,0.08); border-left:3px solid {age_color};">
-                            {age_icon} <b>Last Bar:</b> {last_bar_str}
+                            {age_icon} <b>Son Bar:</b> {last_bar_str}
                             <br><span style="color:#888; font-size:0.78em;">{age_str} · {total_bars} bars · {data_interval}</span>
                             <br><span style="color:{bridge_color}; font-size:0.68em; font-family:'JetBrains Mono',monospace;">🔌 Bridge: {bridge_info}</span>
                         </div>
@@ -2879,7 +2766,7 @@ with tab_single:
                         rt_sign = "+" if rt_quote["change"] >= 0 else ""
                         st.markdown(f"""
                             <div style="padding:8px 12px; border-radius:8px; background:rgba(0,200,83,0.08); border-left:3px solid #00c853;">
-                                🟢 <b>Live Price:</b> ₺{rt_quote['current']:.2f} 
+                                🟢 <b>Canlı Fiyat:</b> ₺{rt_quote['current']:.2f} 
                                 <span style="color:{rt_change_color};">({rt_sign}{rt_quote['change_pct']:.2f}%)</span>
                                 <br><span style="color:#888; font-size:0.8em;">{rt_quote['source']}</span>
                             </div>
@@ -2887,7 +2774,7 @@ with tab_single:
                     else:
                         st.markdown("""
                             <div style="padding:8px 12px; border-radius:8px; background:rgba(255,214,0,0.08); border-left:3px solid #ffd600;">
-                                ⚠️ <b>No live quote</b> — Market may be closed
+                                ⚠️ <b>Canlı fiyat yok</b> — Borsa kapalı olabilir
                             </div>
                         """, unsafe_allow_html=True)
                 
@@ -2895,7 +2782,7 @@ with tab_single:
                     last_bar_time = df.index[-1].strftime("%H:%M:%S") if hasattr(df.index[-1], 'strftime') else str(df.index[-1])
                     st.markdown(f"""
                         <div style="padding:8px 12px; border-radius:8px; background:rgba(255,255,255,0.04); border-left:3px solid #888;">
-                            🕒 <b>Last Bar:</b> {last_bar_time}
+                            🕒 <b>Son Bar:</b> {last_bar_time}
                         </div>
                     """, unsafe_allow_html=True)
                 
@@ -2911,10 +2798,10 @@ with tab_single:
                 # ML Model
                 ml_model = None
                 if enable_ml and ML_AVAILABLE:
-                    with st.spinner("🤖 Training ML model..."):
+                    with st.spinner("🤖 ML modeli eğitiliyor..."):
                         ml_model = train_ml_model(symbol_input, df)
                         if ml_model:
-                            st.success(f"✅ ML Model trained (Test Acc: {ml_model['test_acc']*100:.1f}%)")
+                            st.success(f"✅ ML Modeli eğitildi (Test Acc: {ml_model['test_acc']*100:.1f}%)")
                 
                 # Multi-timeframe
                 mtf_data = None
@@ -2988,7 +2875,7 @@ with tab_single:
                     if mean_rev and mean_rev.get("alerts"):
                         st.markdown("""
                         <div style="font-family:'Outfit',sans-serif; font-size:1.05em; font-weight:700; margin-bottom:6px;">
-                            🔄 Mean Reversion Alerts
+                            🔄 Ortalamaya Dönüş Uyarıları
                         </div>
                         """, unsafe_allow_html=True)
                         for alert_title, alert_desc in mean_rev["alerts"]:
@@ -3005,7 +2892,7 @@ with tab_single:
                     
                     # Candlestick patterns section
                     if result.get("candle_patterns"):
-                        st.markdown("### 🕯️ Candlestick Patterns")
+                        st.markdown("### 🕯️ Mum Formasyonları")
                         for pname, pdesc, ppts in result["candle_patterns"]:
                             card_class = "candle-card-bull" if ppts > 0 else ("candle-card-bear" if ppts < 0 else "candle-card")
                             sign = "+" if ppts >= 0 else ""
@@ -3016,7 +2903,7 @@ with tab_single:
                             """, unsafe_allow_html=True)
                         st.markdown("")
                     
-                    st.markdown("### 📝 Analysis Factors")
+                    st.markdown("### 📝 Analiz Faktörleri")
                     # Separate candle pattern reasons from other reasons
                     non_candle_reasons = [r for r in result["reasons"] if not any(
                         cp[0] in r for cp in result.get("candle_patterns", [])
@@ -3025,25 +2912,25 @@ with tab_single:
                         st.markdown(f"• {reason}")
                     
                     if len(non_candle_reasons) > 12:
-                        with st.expander("Show more..."):
+                        with st.expander("Daha fazla..."):
                             for reason in non_candle_reasons[12:]:
                                 st.markdown(f"• {reason}")
                 
                 with col_c:
                     st.markdown(f"""
                         <div class='trade-plan'>
-                            <h3 style='color:#00e5ff'>📌 Trade Plan</h3>
+                            <h3 style='color:#00e5ff'>📌 İşlem Planı</h3>
                             <hr>
-                            <p><b>Entry:</b> ₺{result['price']:.2f}</p>
+                            <p><b>Giriş:</b> ₺{result['price']:.2f}</p>
                             <p><b>Stop:</b> ₺{result['stop']:.2f}</p>
-                            <p><b>Target:</b> ₺{result['target']:.2f}</p>
+                            <p><b>Hedef:</b> ₺{result['target']:.2f}</p>
                             <p><b>R/R:</b> {result['rr']:.2f}</p>
                             <p><b>TP %:</b> {result['tp_pct']:.2f}%</p>
                         </div>
                     """, unsafe_allow_html=True)
                 
                 # Chart with VWAP + BB + MACD + Stochastic + S/R + Pivots
-                st.markdown("### 📊 Advanced Chart")
+                st.markdown("### 📊 Gelişmiş Grafik")
                 
                 fig = make_subplots(
                     rows=5, cols=1,
@@ -3185,8 +3072,8 @@ with tab_single:
                         """, unsafe_allow_html=True)
                     
                     with rs_cols[1]:
-                        st.metric(f"{symbol_input} Return", f"{sector_rs_data['stock_return']:.2f}%")
-                        st.metric(f"Sector Avg", f"{sector_rs_data['sector_avg']:.2f}%")
+                        st.metric(f"{symbol_input} Getiri", f"{sector_rs_data['stock_return']:.2f}%")
+                        st.metric(f"Sektör Ort.", f"{sector_rs_data['sector_avg']:.2f}%")
                     
                     with rs_cols[2]:
                         st.markdown("**Peer Comparison (5-day)**")
@@ -3373,16 +3260,16 @@ with tab_scanner:
     
     with col1:
         universe = st.selectbox(
-            "📊 Select Universe", 
+            "📊 Evren Seçimi", 
             ["BIST30", "BIST50", "BIST100", "ALL"],
             index=0,
-            help="BIST30 = Fastest (30 stocks, ~40s) | BIST50 = Balanced (50 stocks, ~70s) | BIST100 = Complete (100 stocks, ~2min)",
+            help="BIST30 = En Hızlı (30 hisse, ~40sn) | BIST50 = Dengeli (50 hisse, ~70sn) | BIST100 = Tam (100 hisse, ~2dk)",
             key="scan_universe"
         )
     
     with col2:
         enable_ml_scan = st.checkbox(
-            "🤖 ML Enhancement", 
+            "🤖 ML Tahmini", 
             value=True,
             help="Uses machine learning to validate setups (Recommended)",
             key="scan_ml_enable"
@@ -3395,7 +3282,7 @@ with tab_scanner:
     
     st.markdown("---")
     
-    if st.button("🔍 Start Smart Scan", type="primary", key="start_scan", width='stretch'):
+    if st.button("🔍 Akıllı Taramayı Başlat", type="primary", key="start_scan", width='stretch'):
         start_time = time.time()
         
         # Build universe
@@ -3447,7 +3334,7 @@ with tab_scanner:
             for future in as_completed(futures):
                 completed += 1
                 progress_bar.progress(completed / total)
-                status_text.text(f"Scanning... {completed}/{total}")
+                status_text.text(f"Taranıyor... {completed}/{total}")
                 
                 result = future.result()
                 if result:
@@ -3519,11 +3406,11 @@ with tab_scanner:
                         # Show candle patterns first if any
                         candle_pats = res.get("candle_patterns", [])
                         if candle_pats:
-                            st.markdown("**🕯️ Patterns:**")
+                            st.markdown("**🕯️ Formasyonlar:**")
                             for pname, pdesc, ppts in candle_pats[:3]:
                                 st.caption(f"{pname} {pdesc}")
                         
-                        st.markdown("**🎯 Key Factors:**")
+                        st.markdown("**🎯 Temel Faktörler:**")
                         non_candle = [r for r in res["reasons"] if not any(
                             cp[0] in r for cp in candle_pats
                         )]
@@ -3531,20 +3418,20 @@ with tab_scanner:
                             st.caption(f"• {r}")
                     
                     with col3:
-                        st.markdown(f"**💹 Trade Setup — {sig['label']}**")
-                        st.write(f"Entry: **₺{res['price']:.2f}**")
+                        st.markdown(f"**💹 İşlem Kurulumu — {sig['label']}**")
+                        st.write(f"Giriş: **₺{res['price']:.2f}**")
                         st.write(f"Stop: **₺{res['stop']:.2f}**")
-                        st.write(f"Target: **₺{res['target']:.2f}** (TP: {res['tp_pct']:.1f}%)")
-                        st.write(f"MTF Confluence: **{res['mtf_confluence']:.0f}%**")
+                        st.write(f"Hedef: **₺{res['target']:.2f}** (Kâr Hedefi: {res['tp_pct']:.1f}%)")
+                        st.write(f"Çoklu ZD Uyumu: **{res['mtf_confluence']:.0f}%**")
                     
                     st.markdown("---")
         else:
             st.warning("""
-            ⚠️ **No High-Quality Setups Found**
+            ⚠️ **Yüksek Kaliteli Kurulum Bulunamadı**
             
             The scanner checked stocks but none met the professional criteria:
-            - Score ≥ 70 (strong technical setup)
-            - ML Probability ≥ 60% (high confidence)
+            - Skor ≥ 70 (güçlü teknik kurulum)
+            - ML Olasılığı ≥ %60 (yüksek güvenilirlik)
             
             **What to do:**
             - Try scanning during market hours (10:00-18:00)
@@ -3561,28 +3448,28 @@ with tab_backtest:
     st.markdown("""
     <div style="margin-bottom:16px;">
         <div style="font-family:'Outfit',sans-serif; font-size:1.3em; font-weight:700;">
-            📊 Signal Backtester — Test Before You Trade
+            📊 Sinyal Backtest — İşlem Öncesi Test
         </div>
         <div style="font-family:'JetBrains Mono',monospace; font-size:0.72em; color:#5a6a7e;">
-            Run your scoring engine against historical data to validate signal quality
+            Sinyal kalitesini doğrulamak için geçmiş veriler üzerinde test edin
         </div>
     </div>
     """, unsafe_allow_html=True)
     
     bt_col1, bt_col2, bt_col3 = st.columns([2, 1, 1])
     with bt_col1:
-        bt_symbol = st.text_input("Symbol to Backtest", value="THYAO", key="bt_symbol").upper()
+        bt_symbol = st.text_input("Backtest Sembolü", value="THYAO", key="bt_symbol").upper()
     with bt_col2:
-        bt_hold_bars = st.selectbox("Hold Period (bars)", [3, 5, 8, 10, 15, 20], index=1, key="bt_hold")
+        bt_hold_bars = st.selectbox("Tutma Süresi (bar)", [3, 5, 8, 10, 15, 20], index=1, key="bt_hold")
     with bt_col3:
-        bt_min_score = st.selectbox("Min Score Threshold", [50, 55, 60, 65, 70, 75, 80], index=3, key="bt_min_score")
+        bt_min_score = st.selectbox("Min Skor Eşiği", [50, 55, 60, 65, 70, 75, 80], index=3, key="bt_min_score")
     
-    if st.button("🚀 Run Backtest", type="primary", key="run_backtest", width='stretch'):
-        with st.spinner("⏳ Running backtest... Scoring every bar in history..."):
+    if st.button("🚀 Backtest Başlat", type="primary", key="run_backtest", width='stretch'):
+        with st.spinner("⏳ Backtest çalışıyor... Geçmiş veriler skorlanıyor..."):
             bt_df, bt_sym = get_data_with_db_cache(bt_symbol, "30d", "15m")
             
             if bt_df is None or len(bt_df) < 100:
-                st.error(f"❌ Not enough data for {bt_symbol}. Need 100+ bars, got {len(bt_df) if bt_df is not None else 0}.")
+                st.error(f"❌ Yeterli veri yok: {bt_symbol}. Need 100+ bars, got {len(bt_df) if bt_df is not None else 0}.")
             else:
                 trades = []
                 lookback = 30
@@ -3686,7 +3573,7 @@ with tab_backtest:
                     st.markdown(f"""
                     <div style="text-align:center; margin-bottom:16px;">
                         <div style="font-family:'Outfit',sans-serif; font-size:1.6em; font-weight:800; color:{'#00e676' if total_pnl > 0 else '#ff1744'};">
-                            {'📈' if total_pnl > 0 else '📉'} {total_pnl:+.2f}% Total Return
+                            {'📈' if total_pnl > 0 else '📉'} {total_pnl:+.2f}% Total Getiri
                         </div>
                         <div style="font-family:'JetBrains Mono',monospace; font-size:0.72em; color:#5a6a7e;">
                             {bt_symbol} · {total} signals · {bt_hold_bars}-bar hold · Min score {bt_min_score}
@@ -3695,12 +3582,12 @@ with tab_backtest:
                     """, unsafe_allow_html=True)
                     
                     m1, m2, m3, m4, m5, m6 = st.columns(6)
-                    m1.metric("Win Rate", f"{win_rate:.1f}%", delta=f"{wins}W / {losses}L")
+                    m1.metric("Kazanma Oranı", f"{win_rate:.1f}%", delta=f"{wins}W / {losses}L")
                     m2.metric("Avg Trade", f"{avg_pnl:+.2f}%")
-                    m3.metric("Avg Win", f"{avg_win:+.2f}%")
-                    m4.metric("Avg Loss", f"{avg_loss:.2f}%")
-                    m5.metric("Profit Factor", f"{profit_factor:.2f}" if profit_factor < 100 else "∞")
-                    m6.metric("Max Drawdown", f"{max_dd:.2f}%")
+                    m3.metric("Ort. Kazanç", f"{avg_win:+.2f}%")
+                    m4.metric("Ort. Kayıp", f"{avg_loss:.2f}%")
+                    m5.metric("Kâr Faktörü", f"{profit_factor:.2f}" if profit_factor < 100 else "∞")
+                    m6.metric("Maks. Düşüş", f"{max_dd:.2f}%")
                     
                     st.markdown("### 📊 Performance by Signal Grade")
                     grade_order = ["A+", "A", "B+", "B", "C", "D"]
@@ -3723,7 +3610,7 @@ with tab_backtest:
                             </div>
                             """, unsafe_allow_html=True)
                     
-                    st.markdown("### 📈 Equity Curve")
+                    st.markdown("### 📈 Sermaye Eğrisi")
                     equity = [100]
                     for pnl in trades_df["pnl_pct"]:
                         equity.append(equity[-1] * (1 + pnl / 100))
@@ -3970,7 +3857,7 @@ with tab_portfolio:
         with col1:
             trade_symbol = st.text_input("Stock Symbol", value="TCELL", help="e.g., TCELL, THYAO, GARAN").upper()
             trade_type = st.selectbox("Trade Type", ["BUY", "SELL"])
-            trade_quantity = st.number_input("Quantity", min_value=1, value=151, step=1)
+            trade_quantity = st.number_input("Adet", min_value=1, value=151, step=1)
         
         with col2:
             trade_price = st.number_input("Price (TL)", min_value=0.01, value=160.00, step=0.01, format="%.2f")
@@ -4042,7 +3929,7 @@ with tab_portfolio:
         c2.metric("Total Sold", f"₺{total_sold:,.2f}")
         c3.metric("Realized P&L", f"₺{realized_pnl:,.2f}",
                    delta=f"{(realized_pnl / total_invested * 100) if total_invested > 0 else 0:.2f}%")
-        c4.metric("Open Positions", f"{num_open} stocks", delta=f"₺{open_value:,.2f} invested")
+        c4.metric("Açık Pozisyonlar", f"{num_open} stocks", delta=f"₺{open_value:,.2f} invested")
         c5.metric("Commissions", f"₺{total_commissions:,.2f}")
 
         st.markdown("---")
@@ -4098,7 +3985,7 @@ with tab_portfolio:
                 'Total Cost': s['total_buy_cost'],
                 'Total Revenue': s['total_sell_revenue'] if s['sell_qty'] > 0 else None,
                 'Realized P&L': s['realized_pnl'] if s['sell_qty'] > 0 else None,
-                'Return (%)': pnl_return if s['sell_qty'] > 0 else None,
+                'Getiri (%)': pnl_return if s['sell_qty'] > 0 else None,
                 'Status': status,
                 'Trades': f"{s['buys']}B / {s['sells']}S"
             })
@@ -4119,7 +4006,7 @@ with tab_portfolio:
                 "Total Cost": st.column_config.NumberColumn("Total Cost", format="₺%.2f"),
                 "Total Revenue": st.column_config.NumberColumn("Revenue", format="₺%.2f"),
                 "Realized P&L": st.column_config.NumberColumn("P&L", format="₺%.2f"),
-                "Return (%)": st.column_config.NumberColumn("Return", format="%.2f%%"),
+                "Getiri (%)": st.column_config.NumberColumn("Getiri", format="%.2f%%"),
                 "Status": st.column_config.TextColumn("Status", width="small"),
                 "Trades": st.column_config.TextColumn("Trades", width="small"),
             }
@@ -4143,7 +4030,7 @@ with tab_portfolio:
                         <div>
                             <span style="font-size:1.3em; font-weight:700;">{icon} {ct['Symbol']}</span>
                             <span style="color:#888; margin-left:12px; font-size:0.9em;">
-                                {ct['Quantity']} shares &nbsp;|&nbsp; Bought @ ₺{ct['Buy Price']:.2f} → Sold @ ₺{ct['Sell Price']:.2f}
+                                {ct['Adet']} shares &nbsp;|&nbsp; Bought @ ₺{ct['Alış Fiyatı']:.2f} → Sold @ ₺{ct['Sell Price']:.2f}
                             </span>
                         </div>
                         <div style="text-align:right;">
@@ -4164,9 +4051,9 @@ with tab_portfolio:
                 </div>
                 """, unsafe_allow_html=True)
 
-        # ── Open Positions ──
+        # ── Açık Pozisyonlar ──
         if open_positions:
-            st.markdown("### 📌 Open Positions")
+            st.markdown("### 📌 Açık Pozisyonlar")
             st.caption("Stocks you still hold — not yet included in realized P&L")
 
             for sym, pos in open_positions.items():
@@ -4289,11 +4176,11 @@ with tab_analytics:
             st.markdown("")
 
             c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Total Trades", total_trades_count)
-            c2.metric("Win Rate", f"{win_rate:.1f}%", delta=f"{winning_trades}W / {losing_trades}L")
-            c3.metric("Profit Factor", f"{profit_factor:.2f}" if profit_factor != float('inf') else "∞")
-            c4.metric("Avg Win", f"₺{avg_win:,.2f}")
-            c5.metric("Avg Loss", f"₺{avg_loss:,.2f}")
+            c1.metric("Toplam İşlem", total_trades_count)
+            c2.metric("Kazanma Oranı", f"{win_rate:.1f}%", delta=f"{winning_trades}W / {losing_trades}L")
+            c3.metric("Kâr Faktörü", f"{profit_factor:.2f}" if profit_factor != float('inf') else "∞")
+            c4.metric("Ort. Kazanç", f"₺{avg_win:,.2f}")
+            c5.metric("Ort. Kayıp", f"₺{avg_loss:,.2f}")
 
             st.markdown("---")
 
@@ -4313,7 +4200,7 @@ with tab_analytics:
                         <div>
                             <span style="font-size:1.2em; font-weight:700;">{icon} {ct['Symbol']}</span>
                             <span style="color:#888; margin-left:10px; font-size:0.85em;">
-                                {int(ct['Quantity'])} shares &nbsp;|&nbsp; ₺{ct['Buy Price']:.2f} → ₺{ct['Sell Price']:.2f}
+                                {int(ct['Adet'])} shares &nbsp;|&nbsp; ₺{ct['Alış Fiyatı']:.2f} → ₺{ct['Sell Price']:.2f}
                             </span>
                         </div>
                         <div style="text-align:right;">
@@ -4334,8 +4221,8 @@ with tab_analytics:
 
             st.markdown("---")
 
-            # ── Equity Curve (Enhanced with time axis + drawdown) ──
-            st.markdown("### 📊 Equity Curve")
+            # ── Sermaye Eğrisi (Enhanced with time axis + drawdown) ──
+            st.markdown("### 📊 Sermaye Eğrisi")
 
             closed_df_sorted = closed_df.sort_values('Sell Date')
             closed_df_sorted['Cumulative P&L'] = closed_df_sorted['P&L (TL)'].cumsum()
@@ -4403,7 +4290,7 @@ with tab_analytics:
             max_dd = float(drawdown.min()) if len(drawdown) > 0 else 0
             st.markdown(f"""
                 <div class="pnl-card pnl-card-info" style="text-align:center;">
-                    📉 <b>Max Drawdown:</b> ₺{max_dd:,.2f} | 
+                    📉 <b>Maks. Düşüş:</b> ₺{max_dd:,.2f} | 
                     🏔️ <b>Peak P&L:</b> ₺{float(running_max.max()):,.2f} |
                     📊 <b>Recovery:</b> {'✅ Recovered' if float(cumulative.iloc[-1]) >= float(running_max.max()) * 0.95 else '⏳ In drawdown'}
                 </div>
@@ -4417,20 +4304,20 @@ with tab_analytics:
             stock_perf = closed_df.groupby('Symbol').agg({
                 'P&L (TL)': 'sum',
                 'P&L (%)': 'mean',
-                'Quantity': 'count'
+                'Adet': 'count'
             }).reset_index()
-            stock_perf.columns = ['Symbol', 'Total P&L', 'Avg Return (%)', 'Trades']
-            stock_perf = stock_perf.sort_values('Total P&L', ascending=True)
+            stock_perf.columns = ['Symbol', 'Toplam K/Z', 'Avg Getiri (%)', 'Trades']
+            stock_perf = stock_perf.sort_values('Toplam K/Z', ascending=True)
 
-            bar_colors = ['#00c853' if p > 0 else '#d50000' for p in stock_perf['Total P&L']]
+            bar_colors = ['#00c853' if p > 0 else '#d50000' for p in stock_perf['Toplam K/Z']]
 
             fig_bar = go.Figure()
             fig_bar.add_trace(go.Bar(
                 y=stock_perf['Symbol'],
-                x=stock_perf['Total P&L'],
+                x=stock_perf['Toplam K/Z'],
                 orientation='h',
                 marker_color=bar_colors,
-                text=[f"₺{p:,.2f}" for p in stock_perf['Total P&L']],
+                text=[f"₺{p:,.2f}" for p in stock_perf['Toplam K/Z']],
                 textposition='outside',
                 hovertemplate='<b>%{y}</b><br>P&L: ₺%{x:,.2f}<extra></extra>'
             ))
@@ -4438,7 +4325,7 @@ with tab_analytics:
             fig_bar.update_layout(
                 height=max(250, len(stock_perf) * 50),
                 template="plotly_dark",
-                xaxis_title="Total P&L (₺)",
+                xaxis_title="Toplam K/Z (₺)",
                 margin=dict(t=20, b=40, l=80),
                 showlegend=False
             )
@@ -4449,24 +4336,24 @@ with tab_analytics:
             
             with col1:
                 st.dataframe(
-                    stock_perf.sort_values('Total P&L', ascending=False),
+                    stock_perf.sort_values('Toplam K/Z', ascending=False),
                     width='stretch',
                     hide_index=True,
                     column_config={
                         "Symbol": st.column_config.TextColumn("Stock"),
-                        "Total P&L": st.column_config.NumberColumn("Total P&L", format="₺%.2f"),
-                        "Avg Return (%)": st.column_config.NumberColumn("Avg Return", format="%.2f%%"),
+                        "Toplam K/Z": st.column_config.NumberColumn("Toplam K/Z", format="₺%.2f"),
+                        "Avg Getiri (%)": st.column_config.NumberColumn("Avg Getiri", format="%.2f%%"),
                         "Trades": st.column_config.NumberColumn("# Trades")
                     }
                 )
 
             with col2:
-                st.markdown("**🏆 Best Trades:**")
+                st.markdown("**🏆 En İyi İşlems:**")
                 top_3 = closed_df.nlargest(3, 'P&L (%)')
                 for _, trade in top_3.iterrows():
                     st.success(f"**{trade['Symbol']}**: +{trade['P&L (%)']:.2f}% (₺{trade['P&L (TL)']:.2f})")
                 
-                st.markdown("**📉 Worst Trades:**")
+                st.markdown("**📉 En Kötü İşlems:**")
                 bottom_3 = closed_df.nsmallest(3, 'P&L (%)')
                 for _, trade in bottom_3.iterrows():
                     st.error(f"**{trade['Symbol']}**: {trade['P&L (%)']:.2f}% (₺{trade['P&L (TL)']:.2f})")
@@ -4489,7 +4376,7 @@ with tab_analytics:
             
             with col2:
                 summary_data = {
-                    'Metric': ['Total P&L', 'Total Trades', 'Win Rate', 'Profit Factor', 'Avg Win', 'Avg Loss', 'Overall Return'],
+                    'Metric': ['Toplam K/Z', 'Toplam İşlem', 'Kazanma Oranı', 'Kâr Faktörü', 'Ort. Kazanç', 'Ort. Kayıp', 'Overall Getiri'],
                     'Value': [
                         f"₺{total_pnl:.2f}",
                         total_trades_count,
@@ -4525,7 +4412,7 @@ st.markdown("""
 <div style="text-align:center; margin-top:40px; padding:20px 0;">
     <div style="width:60px; height:1px; background:linear-gradient(90deg, transparent, #00e5ff20, transparent); margin:0 auto 12px;"></div>
     <div style="font-family:'JetBrains Mono',monospace; font-size:0.6em; color:#2a3a4e; letter-spacing:0.2em; text-transform:uppercase;">
-        NEXUS TRADE — ML · MACD · BB · STOCH · S/R · PIVOTS · SECTOR RS · EARNINGS
+        NEXUS TRADE — ML · MACD · BB · STOCH · D/D · PİVOT · SEKTÖR RS · BİLANÇO
     </div>
     <div style="font-family:'JetBrains Mono',monospace; font-size:0.55em; color:#1a2a3e; letter-spacing:0.15em; margin-top:4px;">
         POWERED BY YFINANCE + FINNHUB REAL-TIME · XGBOOST POOLED ML · BIST OPTIMIZED
